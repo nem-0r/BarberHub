@@ -1,0 +1,617 @@
+[
+  {
+    "strategy": "recursive",
+    "top_k": 5,
+    "n_evaluated": 30,
+    "avg_precision_at_k": 0.727,
+    "avg_faithfulness": 0.93,
+    "rows": [
+      {
+        "id": "1",
+        "question": "How does payment work on BarberHub?",
+        "generated": "Payment for services works as follows:\n\n*   BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf].\n*   All payments for services are made directly at the salon af",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "2",
+        "question": "Does BarberHub accept online payments?",
+        "generated": "No, BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf]. All payments for services are made only directly at the salon after the service is rendered [Source: Pl",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "3",
+        "question": "What payment methods are accepted in salons?",
+        "generated": "Acceptable payment methods are determined by each salon individually and include:\n\n* Cash (tenge) [Source: Platform_Rules.pdf]\n* Bank card (Visa, Mastercard, Mir) [Source: Platform_Rules.pdf]\n* Kaspi ",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "4",
+        "question": "How many hours in advance can a booking be canceled without penalty?",
+        "generated": "You can cancel or reschedule a booking without penalties no later than 2 hours before the appointed time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "5",
+        "question": "What happens if a booking is canceled less than 2 hours in advance?",
+        "generated": "If a booking is canceled less than 2 hours before the visit, the following may occur:\n\n* The cancellation may be marked as a 'late cancellation' in the client's profile [Source: Platform_Rules.pdf].\n*",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "6",
+        "question": "How many active bookings can one have simultaneously?",
+        "generated": "A client can have no more than 3 active bookings simultaneously [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "7",
+        "question": "How to become a BarberHub partner?",
+        "generated": "To become a BarberHub partner, you must complete the following steps:\n\n*   Pass the verification process, which requires providing your IIN/BIN, a license, and photos of the salon [Source: Platform_Ru",
+        "precision_at_k": 0.6,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "8",
+        "question": "What is BarberHub's commission from partners?",
+        "generated": "The platform commission is 0% of the service cost [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "9",
+        "question": "How to contact BarberHub support?",
+        "generated": "You can contact BarberHub support through the following channels:\n\n*   **Email:** support@barberhub.kz [Source: Platform_Rules.pdf]\n*   **Hotline phone:** +7 (727) 123-45-67 [Source: Platform_Rules.pd",
+        "precision_at_k": 0.6,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "10",
+        "question": "What happens if a master does not come to work?",
+        "generated": "I cannot find this in the provided documents.",
+        "precision_at_k": 0.6,
+        "faithfulness": 0.0,
+        "answer_relevance": 0.0
+      },
+      {
+        "id": "11",
+        "question": "What is a Fade haircut?",
+        "generated": "A Fade is a popular modern haircut technique characterized by a gradual transition from very short hair at the temples and nape to longer hair on the crown [Source: Haircut_Guide.docx].\n\nThere are thr",
+        "precision_at_k": 0.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "12",
+        "question": "What types of fades exist?",
+        "generated": "There are three types of fade:\n\n*   **Low fade** — the transition starts low, at the hairline [Source: Haircut_Guide.docx].\n*   **Mid fade** — the transition is at ear level [Source: Haircut_Guide.doc",
+        "precision_at_k": 0.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "13",
+        "question": "How much does a men's haircut cost in Almaty?",
+        "generated": "The cost of a men's haircut in Almaty depends on the type of service and the establishment's level:\n\n*   **Basic men's haircut (without styling):** 3,000 – 6,000 tenge [Source: Haircut_Guide.docx]\n*  ",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "14",
+        "question": "What haircut is suitable for curly hair?",
+        "generated": "For curly hair (type 3A–4C), the following haircuts are recommended:\n\n*   Afro\n*   TWA (Teeny Weeny Afro)\n*   Curly Fade\n*   Tapered Natural\n*   Curl Sponge Twist\n*   Undercut with a voluminous top (f",
+        "precision_at_k": 1.0,
+        "faithfulness": 0.5,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "15",
+        "question": "On what hair are curly clients cut — wet or dry?",
+        "generated": "Curly hair is cut on dry hair [Source: Haircut_Guide.docx].",
+        "precision_at_k": 1.0,
+        "faithfulness": 0.7,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "16",
+        "question": "How much does a beard trim cost in Almaty?",
+        "generated": "The cost of beard services in Almaty depends on the specific service:\n\n*   **Beard lineup/shaping (clear contour on cheeks and neck):** 2,000 – 4,500 tenge [Source: Haircut_Guide.docx]\n*   **Beard tri",
+        "precision_at_k": 0.8,
+        "faithfulness": 0.7,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "17",
+        "question": "What is an undercut?",
+        "generated": "An undercut is a classic haircut featuring a long top and cleanly shaved or very short temples and nape without a smooth transition (a harsh dividing line) [Source: Haircut_Guide.docx].\n\nKey details:\n",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "18",
+        "question": "How often should one get a fade haircut?",
+        "generated": "To maintain the shape of a fade haircut, you should visit a barbershop every 2–3 weeks [Source: Haircut_Guide.docx].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "19",
+        "question": "How long does a royal shave last?",
+        "generated": "A royal shave takes 40–60 minutes [Source: Haircut_Guide.docx].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "20",
+        "question": "How much does a haircut plus beard package cost?",
+        "generated": "The cost for a haircut and beard package is as follows:\n\n*   Haircut + beard (complex): 6,000 – 14,000 tenge [Source: Haircut_Guide.docx]\n*   Men's haircut with styling and shaping: 5,000 – 10,000 ten",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "21",
+        "question": "What is a pompadour?",
+        "generated": "A pompadour is a hairstyle featuring voluminous back-swept styling where the hair on the crown is swept up and back [Source: Haircut_Guide.docx]. Modern versions of the pompadour are often combined wi",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "22",
+        "question": "What haircut is suitable for thin hair?",
+        "generated": "For thin hair, the following options are recommended:\n\n*   **Crop / French Crop:** This style is suitable for fine hair as it creates the illusion of volume [Source: Haircut_Guide.docx].\n*   **Texture",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "23",
+        "question": "How to care for a beard at home?",
+        "generated": "To care for your beard at home, follow these guidelines:\n\n*   **Daily combing:** Use a special comb or a boar bristle brush [Source: Haircut_Guide.docx].\n*   **Beard oil:** This is the basis of care; ",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "24",
+        "question": "How much does a children's haircut cost in Almaty?",
+        "generated": "A children's haircut (up to 12 years) in Almaty costs between 2,500 and 5,000 tenge [Source: Haircut_Guide.docx].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "25",
+        "question": "What is a taper?",
+        "generated": "A taper is a haircut similar to a fade, but it features a softer transition and keeps more hair on the sides [Source: Haircut_Guide.docx]. It is considered a classic option for business people and tho",
+        "precision_at_k": 0.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "26",
+        "question": "What tools does a professional barber use?",
+        "generated": "A professional barbershop uses the following tools:\n\n*   Branded clippers (Wahl, Andis, Oster) [Source: Haircut_Guide.docx]\n*   Real straight razors [Source: Haircut_Guide.docx]\n*   Quality cosmetics ",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "27",
+        "question": "What to check when choosing a barbershop?",
+        "generated": "When choosing a barbershop, you should pay attention to the following:\n\n*   **Master's portfolio:** View their work on BarberHub and the barbershop's Instagram [Source: Haircut_Guide.docx].\n*   **Revi",
+        "precision_at_k": 0.6,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "28",
+        "question": "How much does hair lightening or coloring cost in Almaty?",
+        "generated": "The cost for bleaching or coloring in Almaty is 8,000 – 25,000 tenge [Source: Haircut_Guide.docx].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "29",
+        "question": "Can I pay through the BarberHub app?",
+        "generated": "No, you cannot pay through the BarberHub app. BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf]. All payments for services must be made directly at the salon ",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "30",
+        "question": "Can one register multiple accounts for one person?",
+        "generated": "No, it is prohibited to create multiple accounts [Source: Platform_Rules.pdf]. One account is allowed per one physical person [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.6,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      }
+    ],
+    "label": "Exp1 — Baseline: recursive, top_k=5",
+    "avg_answer_relevance": 0.793
+  },
+  {
+    "strategy": "fixed",
+    "top_k": 5,
+    "n_evaluated": 10,
+    "avg_precision_at_k": 0.78,
+    "avg_faithfulness": 1.0,
+    "rows": [
+      {
+        "id": "1",
+        "question": "How does payment work on BarberHub?",
+        "generated": "Payment for services on BarberHub works as follows:\n\n*   BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf].\n*   All payments are made ONLY directly at the sal",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "2",
+        "question": "Does BarberHub accept online payments?",
+        "generated": "No, BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf]. All payments for services are made only directly at the salon after the service is rendered [Source: Pl",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "3",
+        "question": "What payment methods are accepted in salons?",
+        "generated": "Acceptable payment methods are determined by each salon individually and may include:\n\n*   Cash (tenge) [Source: Platform_Rules.pdf]\n*   Bank card (Visa, Mastercard, Mir) [Source: Platform_Rules.pdf]\n",
+        "precision_at_k": 0.6,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "4",
+        "question": "How many hours in advance can a booking be canceled without penalty?",
+        "generated": "A booking can be canceled or rescheduled without penalties no later than 2 hours before the appointed time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "5",
+        "question": "What happens if a booking is canceled less than 2 hours in advance?",
+        "generated": "Cancellations made less than 2 hours before the visit may be marked as a \"late cancellation\" in the client's profile [Source: Platform_Rules.pdf]. Three consecutive late cancellations may result in th",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "6",
+        "question": "How many active bookings can one have simultaneously?",
+        "generated": "A client can have no more than 3 active bookings simultaneously [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "7",
+        "question": "How to become a BarberHub partner?",
+        "generated": "To become a BarberHub partner, you must complete the following steps:\n\n*   **Registration and Verification:** You must pass a verification process, which requires providing your IIN/BIN, a license, an",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "8",
+        "question": "What is BarberHub's commission from partners?",
+        "generated": "The platform commission is 0% of the service cost [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "9",
+        "question": "How to contact BarberHub support?",
+        "generated": "You can contact BarberHub support through the following channels:\n\n*   **Email:** support@barberhub.kz [Source: Platform_Rules.pdf]\n*   **Hotline:** +7 (727) 123-45-67 [Source: Platform_Rules.pdf]\n*  ",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "10",
+        "question": "What happens if a master does not come to work?",
+        "generated": "If a salon or master cannot fulfill an appointment due to force majeure, the salon may cancel the booking [Source: Platform_Rules.pdf]. In this case, the client will receive a notification and an offe",
+        "precision_at_k": 0.8,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      }
+    ],
+    "label": "Exp2 — Fixed chunks, top_k=5",
+    "avg_answer_relevance": 0.86
+  },
+  {
+    "strategy": "recursive",
+    "top_k": 3,
+    "n_evaluated": 10,
+    "avg_precision_at_k": 0.933,
+    "avg_faithfulness": 1.0,
+    "rows": [
+      {
+        "id": "1",
+        "question": "How does payment work on BarberHub?",
+        "generated": "Payment for services works as follows:\n\n* BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf].\n* All payments for services are made only directly at the salon a",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "2",
+        "question": "Does BarberHub accept online payments?",
+        "generated": "No, BarberHub does not accept payments. All payments for services are made directly at the salon after the service is rendered [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "3",
+        "question": "What payment methods are accepted in salons?",
+        "generated": "Acceptable payment methods are determined by each salon individually and include:\n\n* Cash (tenge) [Source: Platform_Rules.pdf]\n* Bank card (Visa, Mastercard, Mir) [Source: Platform_Rules.pdf]\n* Kaspi ",
+        "precision_at_k": 0.667,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "4",
+        "question": "How many hours in advance can a booking be canceled without penalty?",
+        "generated": "You can cancel or reschedule a booking without penalties no later than 2 hours before the appointed time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "5",
+        "question": "What happens if a booking is canceled less than 2 hours in advance?",
+        "generated": "If a booking is canceled less than 2 hours before the visit, the following may occur:\n\n* The cancellation may be marked as a \"late cancellation\" in the client's profile [Source: Platform_Rules.pdf].\n*",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "6",
+        "question": "How many active bookings can one have simultaneously?",
+        "generated": "A client can have no more than 3 active bookings simultaneously [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "7",
+        "question": "How to become a BarberHub partner?",
+        "generated": "To become a BarberHub partner, you must complete the following steps:\n\n*   Pass the verification process, which requires providing your IIN/BIN, a license, and photos of the salon [Source: Platform_Ru",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "8",
+        "question": "What is BarberHub's commission from partners?",
+        "generated": "The platform commission is 0% of the service cost [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "9",
+        "question": "How to contact BarberHub support?",
+        "generated": "You can contact BarberHub support through the following channels:\n\n*   **Email:** support@barberhub.kz [Source: Platform_Rules.pdf]\n*   **Hotline phone:** +7 (727) 123-45-67 [Source: Platform_Rules.pd",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "10",
+        "question": "What happens if a master does not come to work?",
+        "generated": "The salon may cancel an appointment in case of force majeure. In this case, the client will receive a notification and an offer for an alternative time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.667,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      }
+    ],
+    "label": "Exp3 — Recursive, top_k=3 (lower recall)",
+    "avg_answer_relevance": 0.92
+  },
+  {
+    "strategy": "recursive",
+    "top_k": 10,
+    "n_evaluated": 10,
+    "avg_precision_at_k": 0.4,
+    "avg_faithfulness": 1.0,
+    "rows": [
+      {
+        "id": "1",
+        "question": "How does payment work on BarberHub?",
+        "generated": "Payment for services works as follows:\n\n*   BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf].\n*   All payments for services are made ONLY directly at the sal",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "2",
+        "question": "Does BarberHub accept online payments?",
+        "generated": "No, BarberHub does not accept payments and is not a payment system. All payments for services are made only directly at the salon after the service is rendered [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "3",
+        "question": "What payment methods are accepted in salons?",
+        "generated": "Acceptable payment methods are determined by each salon individually:\n\n*   Cash (tenge)\n*   Bank card (Visa, Mastercard, Mir)\n*   Kaspi Pay, Halyk Pay\n*   Transfers via Kaspi Gold\n\n[Source: Platform_R",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "4",
+        "question": "How many hours in advance can a booking be canceled without penalty?",
+        "generated": "The client has the right to cancel or reschedule a booking no later than 2 hours before the appointed time without penalties [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "5",
+        "question": "What happens if a booking is canceled less than 2 hours in advance?",
+        "generated": "Cancellations made less than 2 hours before the visit may be marked as a \"late cancellation\" in the client's profile [Source: Platform_Rules.pdf]. Three consecutive late cancellations may result in a ",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "6",
+        "question": "How many active bookings can one have simultaneously?",
+        "generated": "A client can have no more than 3 active bookings simultaneously [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "7",
+        "question": "How to become a BarberHub partner?",
+        "generated": "To become a BarberHub partner, you must follow these steps:\n\n*   **Platform Registration:** You must pass a verification process, which requires providing your IIN/BIN, a license, and photos of the sa",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "8",
+        "question": "What is BarberHub's commission from partners?",
+        "generated": "The platform commission is 0% of the service cost [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "9",
+        "question": "How to contact BarberHub support?",
+        "generated": "You can contact BarberHub support using the following methods:\n\n*   **Email:** support@barberhub.kz [Source: Platform_Rules.pdf]\n*   **Hotline phone:** +7 (727) 123-45-67 [Source: Platform_Rules.pdf]\n",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "10",
+        "question": "What happens if a master does not come to work?",
+        "generated": "If a salon cancels an appointment due to force majeure, the client will receive a notification and an offer for an alternative time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 0.4,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      }
+    ],
+    "label": "Exp4 — Recursive, top_k=10 (higher recall)",
+    "avg_answer_relevance": 0.87
+  },
+  {
+    "strategy": "fixed",
+    "top_k": 3,
+    "n_evaluated": 10,
+    "avg_precision_at_k": 0.967,
+    "avg_faithfulness": 0.9,
+    "rows": [
+      {
+        "id": "1",
+        "question": "How does payment work on BarberHub?",
+        "generated": "Payment for services works as follows:\n\n*   BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf].\n*   All payments for services are made only directly at the sal",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "2",
+        "question": "Does BarberHub accept online payments?",
+        "generated": "No, BarberHub does not accept payments and is not a payment system [Source: Platform_Rules.pdf]. All payments for services are made only directly at the salon after the service is rendered [Source: Pl",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "3",
+        "question": "What payment methods are accepted in salons?",
+        "generated": "Acceptable payment methods are determined by each salon individually and include:\n\n* Cash (tenge) [Source: Platform_Rules.pdf]\n* Bank card (Visa, Mastercard, Mir) [Source: Platform_Rules.pdf]\n* Kaspi ",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "4",
+        "question": "How many hours in advance can a booking be canceled without penalty?",
+        "generated": "A booking can be canceled or rescheduled without penalties no later than 2 hours before the appointed time [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "5",
+        "question": "What happens if a booking is canceled less than 2 hours in advance?",
+        "generated": "If a booking is canceled less than 2 hours before the visit:\n\n* The cancellation may be marked as a \"late cancellation\" in the client's profile [Source: Platform_Rules.pdf].\n* Three consecutive late c",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.5
+      },
+      {
+        "id": "6",
+        "question": "How many active bookings can one have simultaneously?",
+        "generated": "A client can have no more than 3 active bookings simultaneously [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "7",
+        "question": "How to become a BarberHub partner?",
+        "generated": "To become a BarberHub partner, you must pass a verification process which requires the following:\n\n*   IIN/BIN [Source: Platform_Rules.pdf]\n*   License [Source: Platform_Rules.pdf]\n*   Salon photos [S",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 0.7
+      },
+      {
+        "id": "8",
+        "question": "What is BarberHub's commission from partners?",
+        "generated": "The platform commission is 0% of the service cost [Source: Platform_Rules.pdf].",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "9",
+        "question": "How to contact BarberHub support?",
+        "generated": "You can contact BarberHub support through the following channels:\n\n*   **Email:** support@barberhub.kz [Source: Platform_Rules.pdf]\n*   **Hotline:** +7 (727) 123-45-67 [Source: Platform_Rules.pdf]\n*  ",
+        "precision_at_k": 1.0,
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0
+      },
+      {
+        "id": "10",
+        "question": "What happens if a master does not come to work?",
+        "generated": "I cannot find this in the provided documents.",
+        "precision_at_k": 0.667,
+        "faithfulness": 0.0,
+        "answer_relevance": 0.0
+      }
+    ],
+    "label": "Exp5 — Fixed chunks, top_k=3",
+    "avg_answer_relevance": 0.79
+  }
+]

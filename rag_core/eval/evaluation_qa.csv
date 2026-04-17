@@ -1,0 +1,31 @@
+id,question,ground_truth_answer,ground_truth_source
+1,How does payment work on BarberHub?,BarberHub does not accept payments. All settlements are made only at the salon after the service is provided.,Platform_Rules.pdf
+2,Does BarberHub accept online payments?,No. BarberHub is not a payment system and does not accept payments. Payment only at the salon.,Platform_Rules.pdf
+3,What payment methods are accepted in salons?,Cash tenge; bank card (Visa/Mastercard/Mir); Kaspi Pay; Halyk Pay; transfers via Kaspi Gold.,Platform_Rules.pdf
+4,How many hours in advance can a booking be canceled without penalty?,No later than 2 hours before the scheduled time.,Platform_Rules.pdf
+5,What happens if a booking is canceled less than 2 hours in advance?,The cancellation will be marked as late. Three consecutive late cancellations will result in a 7-day block.,Platform_Rules.pdf
+6,How many active bookings can one have simultaneously?,No more than 3 active bookings per client.,Platform_Rules.pdf
+7,How to become a BarberHub partner?,You need to pass verification: provide IIN/BIN and license and photos of the salon.,Platform_Rules.pdf
+8,What is BarberHub's commission from partners?,The platform's commission is 0% of the service cost.,Platform_Rules.pdf
+9,How to contact BarberHub support?,Email: support@barberhub.kz. Working hours: daily from 09:00 to 21:00 Almaty time.,Platform_Rules.pdf
+10,What happens if a master does not come to work?,The salon can cancel the appointment due to force majeure. The client will receive a notification and an offer of an alternative time.,Platform_Rules.pdf
+11,What is a Fade haircut?,Fade is a gradual transition from very short length at the temples and back of the head to longer hair at the crown. There are low, mid, and high fades.,Haircut_Guide.docx
+12,What types of fades exist?,Low fade (low transition); Mid fade (at ear level); High fade / Skin fade (very high, down to the skin).,Haircut_Guide.docx
+13,How much does a men's haircut cost in Almaty?,Basic haircut without styling 3000–6000 tenge. Haircut with styling and shaping 5000–10000 tenge.,Haircut_Guide.docx
+14,What haircut is suitable for curly hair?,Afro; TWA; Curly Fade; Tapered Natural; Curl Sponge Twist. The haircut is performed on dry hair. A regular comb cannot be used.,Haircut_Guide.docx
+15,On what hair are curly clients cut — wet or dry?,Only on dry hair — wet curls shorten significantly when drying.,Haircut_Guide.docx
+16,How much does a beard trim cost in Almaty?,Beard shaping (contour) 2000–4500 tenge. Beard trim with shaping 3000–6000 tenge.,Haircut_Guide.docx
+17,What is an undercut?,An undercut is a long top with cleanly shaved or very short temples and back of the head without a smooth transition (a hard part line).,Haircut_Guide.docx
+18,How often should one get a fade haircut?,Every 2–3 weeks to maintain the shape.,Haircut_Guide.docx
+19,How long does a royal shave last?,40–60 minutes.,Haircut_Guide.docx
+20,How much does a haircut plus beard package cost?,A haircut + beard package costs 6000–14000 tenge in Almaty.,Haircut_Guide.docx
+21,What is a pompadour?,A pompadour is a voluminous style with hair swept up and back at the crown. A modern pompadour is combined with a fade on the sides.,Haircut_Guide.docx
+22,What haircut is suitable for thin hair?,Crop top / French Crop — creates the illusion of volume for thin hair.,Haircut_Guide.docx
+23,How to care for a beard at home?,Comb daily; use beard oil; balm for shape; wash 2–3 times a week with a special shampoo.,Haircut_Guide.docx
+24,How much does a children's haircut cost in Almaty?,2500–5000 tenge.,Haircut_Guide.docx
+25,What is a taper?,A taper is a soft gradual transition on the sides, retaining more hair than a fade. A classic business style.,Haircut_Guide.docx
+26,What tools does a professional barber use?,Professional clippers (Wahl Andis Oster); real straight razors; quality cosmetics (American Crew Layrite Reuzel).,Haircut_Guide.docx
+27,What to check when choosing a barbershop?,Master's portfolio; reviews; master's specialization; tools; hygiene (cape change and tool sanitation).,Haircut_Guide.docx
+28,How much does hair lightening or coloring cost in Almaty?,8000–25000 tenge.,Haircut_Guide.docx
+29,Can I pay through the BarberHub app?,No. BarberHub does not accept payments — payment is only at the salon.,Platform_Rules.pdf
+30,Can one register multiple accounts for one person?,No. One account — one physical person. Creating multiple accounts is prohibited.,Platform_Rules.pdf
