@@ -1,38 +1,153 @@
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 .venv/
 venv/
 env/
+ENV/
 *.egg-info/
+*.egg
 dist/
 build/
+.eggs/
 
-# Environment
+# =============================================================================
+# Environment / secrets
+# =============================================================================
+# Never commit anything that holds real credentials.
 .env
-.env.local
+.env.*
+!.env.example                     # template — safe to commit (no real values)
+!.env.production.example          # template — safe to commit
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+!frontend/.env.production.example
 
-# RAG — large files, not for git
+# Generic secret material — accidentally dropping a key file should not leak it
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets.json
+credentials.json
+serviceAccount*.json
+
+# =============================================================================
+# AI assistants / coding tools (personal config — DO NOT commit)
+# =============================================================================
+# Claude Code / claude-flow / ruflo: contain personal hooks, daemon state,
+# learned patterns from your local workflow. Not for public eyes.
+.claude/
+.claude-flow/
+.swarm/
+.antigravity/
+.cursor/
+.continue/
+.aider*
+.windsurfrules
+ruvector.db
+ruvector.db-journal
+.ruflo/
+scratch/
+CLAUDE.md
+
+# Auto-generated working notes — personal scratchpad, usually full of half-
+# finished thoughts and pointers to internal stuff. Delete the lines below if
+# you DO want any of these visible on GitHub.
+FIX_PLAN.md
+advice.md
+performance.md
+project.md
+ONBOARDING.md
+DEPLOY.md
+# Memory files (auto-memory bridge)
+MEMORY.md
+memory/
+
+# =============================================================================
+# RAG large files — rebuilt locally / in container
+# =============================================================================
 rag_core/chroma_data/
 rag_core/.model_cache/
+.model_cache/
 
-# macOS
-.DS_Store
-
-# Node
+# =============================================================================
+# Node / Next.js
+# =============================================================================
 node_modules/
 .next/
 frontend/.next/
+out/
 .pnpm-store/
 frontend/.pnpm-store/
+frontend/build/
+frontend/.vercel/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
 
-# Logs
+# =============================================================================
+# Tool caches & test artifacts
+# =============================================================================
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+.nox/
+.hypothesis/
+
+# Profiler output (pyinstrument writes HTML if you ever flip ENABLE_PROFILER)
+*.pyspy
+*.svg.profile
+profile-*.html
+
+# =============================================================================
+# Editors / IDE
+# =============================================================================
+.idea/
+.vscode/
+!.vscode/extensions.json          # opt-in: recommend extensions to teammates
+*.iml
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# =============================================================================
+# OS junk
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# =============================================================================
+# Logs / runtime files
+# =============================================================================
 *.log
+logs/
 celerybeat-schedule
+celerybeat.pid
+*.pid
+*.sock
 
-# AI Assistants
-.swarm/
-scratch/
-.antigravity/
-
+# =============================================================================
+# Backups / temp
+# =============================================================================
+*.bak
+*.tmp
+*.swp
+*.swo
+*~
+.~lock.*
