@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Request
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
@@ -10,7 +10,8 @@ from app.dependencies import get_current_user, RoleChecker
 from app.users.models import UserRole, User
 from app.limiter import limiter
 from app.salons.models import Salon
-from app.tasks.image_tasks import process_image_upload_task
+from app.tasks.dispatch import queue_image_upload
+from app.pagination import pagination_params
 
 router = APIRouter(prefix="/salons", tags=["Salons"])
 
@@ -24,9 +25,10 @@ async def list_salons(
     search: Optional[str] = None,
     sort_by: Optional[str] = "name",
     order: str = "asc",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    pagination: dict = Depends(pagination_params),
 ):
-    return await svc.get_all_salons(session, search, sort_by, order)
+    return await svc.get_all_salons(session, search, sort_by, order, **pagination)
 
 
 @router.get("/{salon_id}", response_model=SalonRead)
@@ -118,6 +120,7 @@ async def delete_salon(
 async def upload_salon_image(
     request: Request,
     salon_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -125,17 +128,18 @@ async def upload_salon_image(
     salon = await svc.get_salon_by_id(salon_id, session)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
-        
+
     if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify this salon")
-    
+
     contents = await file.read()
-    
-    process_image_upload_task.delay(
+
+    queue_image_upload(
         entity_type="salons",
         entity_id=str(salon_id),
         image_bytes=contents,
-        filename=file.filename
+        filename=file.filename,
+        background_tasks=background_tasks,
     )
-    
+
     return {"message": "Image upload started in background", "filename": file.filename}

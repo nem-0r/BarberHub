@@ -11,10 +11,15 @@ from config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("custom_logging")
 
-try:
-    es = Elasticsearch([settings.ELASTIC_URL])
-except Exception as e:
-    logger.error(f"Could not connect to Elasticsearch: {e}")
+if settings.ELASTIC_ENABLED:
+    try:
+        es = Elasticsearch([settings.ELASTIC_URL])
+    except Exception as e:
+        logger.error(f"Could not connect to Elasticsearch: {e}")
+        es = None
+else:
+    # Free-tier deploys skip ES entirely — `docker compose up` still uses ES
+    # because docker-compose.yml leaves ELASTIC_ENABLED at the default True.
     es = None
 
 
@@ -33,7 +38,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host
         client_port = request.client.port
         method = request.method
-        url = str(request.url)
+        path = request.url.path
+        _SENSITIVE_PREFIXES = ("/users/verify/", "/users/reset-password/")
+        if any(path.startswith(p) for p in _SENSITIVE_PREFIXES):
+            prefix = next(p for p in _SENSITIVE_PREFIXES if path.startswith(p))
+            url = str(request.url.scheme) + "://" + str(request.url.netloc) + prefix + "<redacted>"
+        else:
+            url = str(request.url.replace(query=None))
 
         response = await call_next(request)
 

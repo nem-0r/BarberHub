@@ -1,6 +1,6 @@
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, File, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
 from app.staff.schemas import StaffCreate, StaffUpdate, StaffRead
@@ -8,6 +8,7 @@ import app.staff.service as svc
 from app.dependencies import get_current_user, RoleChecker
 from app.users.models import UserRole, User
 from app.salons.models import Salon
+from app.pagination import pagination_params
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
 
@@ -15,8 +16,11 @@ owner_admin_only = RoleChecker([UserRole.owner, UserRole.admin])
 
 
 @router.get("/", response_model=List[StaffRead])
-async def list_staff(session: AsyncSession = Depends(get_session)):
-    return await svc.get_all_staff(session)
+async def list_staff(
+    session: AsyncSession = Depends(get_session),
+    pagination: dict = Depends(pagination_params),
+):
+    return await svc.get_all_staff(session, **pagination)
 
 
 @router.get("/salon/{salon_id}", response_model=List[StaffRead])
@@ -76,6 +80,7 @@ async def delete_staff(
 @router.post("/{staff_id}/image", dependencies=[Depends(owner_admin_only)])
 async def upload_staff_avatar(
     staff_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -83,19 +88,20 @@ async def upload_staff_avatar(
     staff = await svc.get_staff_by_id(staff_id, session)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
-        
+
     salon = await session.get(Salon, staff.salon_id)
     if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify this staff member")
-    
-    from app.tasks.image_tasks import process_image_upload_task
-    
+
+    from app.tasks.dispatch import queue_image_upload
+
     contents = await file.read()
-    process_image_upload_task.delay(
+    queue_image_upload(
         entity_type="staff",
         entity_id=str(staff_id),
         image_bytes=contents,
-        filename=file.filename
+        filename=file.filename,
+        background_tasks=background_tasks,
     )
-    
+
     return {"message": "Avatar upload started in background", "filename": file.filename}

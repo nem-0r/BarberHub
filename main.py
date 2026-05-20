@@ -10,16 +10,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.exceptions import BarbershopException
 
-import app.users.models  
-import app.salons.models  
-import app.staff.models  
-import app.services.models  
-import app.staff_services.models  
-import app.schedules.models  
-import app.bookings.models  
-import app.reviews.models
+from app import register_models
 
-from database import init_db
+register_models()
+
+import logging as _logging
+_bx_logger = _logging.getLogger("custom_logging")
+
 from config import settings
 from app.rag.service import rag_service
 from app.rag.routes import router as chat_router
@@ -31,16 +28,52 @@ from app.staff_services.routes import router as staff_services_router
 from app.schedules.routes import router as schedules_router
 from app.bookings.routes import router as bookings_router
 from app.reviews.routes import router as reviews_router
+from app.ml.routes import router as ml_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    # RAG service warmup: loads BGE-M3 model and opens ChromaDB connection once
+    # Schema migrations are owned by Alembic (see entrypoint.sh: `alembic upgrade head`).
+    # Do NOT call SQLModel.metadata.create_all here — it bypasses migration history
+    # and creates a divergent schema between dev and prod.
+
+    # RAG warmup loads a 1.5 GB BGE-M3 model from disk (5–10s). We schedule it as a
+    # background task instead of awaiting it so the API accepts requests immediately.
+    # /api/chat and /api/chat/stream guard on rag_service.ready and return 503 until
+    # warmup finishes — see app/rag/routes.py.
+    # Surface dangerous prod misconfig at boot (does NOT crash — see
+    # Settings.production_warnings docstring for why we log instead of raise).
+    for _w in settings.production_warnings():
+        _bx_logger.warning("[CONFIG] %s", _w)
+
     import asyncio
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, rag_service.warmup)
-    yield
+    warmup_task = asyncio.create_task(asyncio.to_thread(rag_service.warmup))
+
+    def _log_warmup_failure(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            print(f"[RAG] Warmup failed: {type(exc).__name__}: {exc}")
+
+    warmup_task.add_done_callback(_log_warmup_failure)
+
+    # When Celery is disabled (free-tier deploy), drive periodic jobs in-process
+    # via APScheduler. Local dev keeps USE_CELERY=True and the beat container
+    # owns the schedule, so this is a no-op there.
+    if not settings.USE_CELERY:
+        from app.tasks.scheduler import start_scheduler
+        start_scheduler()
+
+    try:
+        yield
+    finally:
+        if not settings.USE_CELERY:
+            from app.tasks.scheduler import stop_scheduler
+            stop_scheduler()
+        # Best-effort cancel on shutdown so the worker thread doesn't outlive the process.
+        if not warmup_task.done():
+            warmup_task.cancel()
 
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,6 +96,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.exception_handler(BarbershopException)
 async def barbershop_exception_handler(request: Request, exc: BarbershopException):
+    # Surface the real reason in `docker compose logs app` — otherwise only the
+    # HTTP status is logged and AvailabilityError/BookingConflictError reasons
+    # (off-duty, outside hours, slot taken) are invisible.
+    _bx_logger.warning(
+        "[%s] %s %s -> %s: %s",
+        exc.__class__.__name__, request.method, request.url.path,
+        exc.status_code, exc.message,
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.__class__.__name__, "message": exc.message},
@@ -74,15 +115,13 @@ from app.middleware.profiler import ProfilerMiddleware
 # Inner middlewares added first (processed last)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(ProfilerMiddleware)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts_list)
 
 # CORS must be added LAST — becomes the outermost middleware (processed first)
 # allow_origins cannot be ["*"] when allow_credentials=True (CORS spec violation)
-_allowed_origins = list({
-    settings.FRONTEND_URL,
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-})
+_allowed_origins = [settings.FRONTEND_URL]
+if settings.DEBUG:
+    _allowed_origins = list({*_allowed_origins, "http://localhost:3000", "http://127.0.0.1:3000"})
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,6 +130,37 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all so unexpected 500s still carry CORS headers.
+
+    Starlette's ServerErrorMiddleware sits ABOVE CORSMiddleware, so an
+    unhandled exception produces a 500 with NO Access-Control-Allow-Origin —
+    the browser then reports a misleading "CORS policy" error that masks the
+    real backend failure. We attach the CORS headers manually here and surface
+    the actual error so failures are debuggable instead of hidden.
+    """
+    # Full context (type, message, stack) goes to the logs ONLY.
+    _bx_logger.exception(
+        "[Unhandled] %s %s -> 500: %s",
+        request.method, request.url.path, exc,
+    )
+    origin = request.headers.get("origin")
+    headers = {}
+    if origin and origin in _allowed_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+    # Never leak exception text (SQL, paths, internals) to the client in prod.
+    # DEBUG=True keeps the old verbose behaviour for local debugging.
+    if settings.DEBUG:
+        body = {"error": type(exc).__name__, "message": str(exc)}
+    else:
+        body = {"error": "InternalServerError",
+                "message": "Internal server error"}
+    return JSONResponse(status_code=500, content=body, headers=headers)
+
 
 app.include_router(chat_router)
 app.include_router(users_router)
@@ -101,8 +171,42 @@ app.include_router(staff_services_router)
 app.include_router(schedules_router)
 app.include_router(bookings_router)
 app.include_router(reviews_router)
+app.include_router(ml_router)
 
 
 @app.get("/", tags=["Health"])
 async def root():
     return {"status": "ok", "message": "Barbershop API is running"}
+
+
+@app.get("/health", tags=["Health"])
+async def health():
+    """Real readiness probe for orchestrators (Railway/Render/k8s).
+
+    Returns 503 if Postgres or Redis is unreachable so the platform stops
+    routing traffic to a broken instance instead of serving 500s.
+    """
+    from sqlalchemy import text
+    from database import engine
+    from app.users.redis import redis_client
+
+    checks = {"database": "ok", "redis": "ok"}
+    healthy = True
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        checks["database"] = f"error: {type(exc).__name__}"
+        healthy = False
+
+    try:
+        await redis_client.ping()
+    except Exception as exc:
+        checks["redis"] = f"error: {type(exc).__name__}"
+        healthy = False
+
+    body = {"status": "ok" if healthy else "degraded", "checks": checks}
+    if not healthy:
+        return JSONResponse(status_code=503, content=body)
+    return body

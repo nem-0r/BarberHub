@@ -1,0 +1,97 @@
+# Render Blueprint — deploys the backend on the free tier.
+#
+# Apply once:  Render Dashboard → New → Blueprint → connect this repo.
+# After that, every push to `main` redeploys automatically.
+#
+# Vercel handles the frontend separately (set NEXT_PUBLIC_API_URL to the URL
+# Render assigns this service). Postgres lives in Supabase (free), Redis in
+# Upstash (free) — see DEPLOY.md for the rest of the wiring.
+
+services:
+  - type: web
+    name: barberhub-api
+    env: docker
+    plan: free
+    region: frankfurt   # closest to most EU recruiters; change if you prefer
+    dockerfilePath: ./Dockerfile.prod
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # ----- App mode -----
+      - key: DEBUG
+        value: "false"
+      - key: USE_CELERY
+        value: "false"
+      - key: ELASTIC_ENABLED
+        value: "false"
+      - key: RAG_BACKEND
+        value: "pgvector"
+      - key: EMBEDDER_PROVIDER
+        value: "gemini"
+      - key: EMBEDDING_DIM
+        value: "768"
+      - key: GEMINI_EMBED_MODEL
+        value: "models/text-embedding-004"
+      - key: WEB_CONCURRENCY
+        value: "1"
+
+      # ----- Cross-origin cookies (Vercel frontend ↔ Render API) -----
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: "none"
+
+      # ----- Supabase pooler tuning (transaction mode = 6543) -----
+      - key: DB_PGBOUNCER
+        value: "true"
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+
+      # ----- Secrets (set in Render dashboard, never committed) -----
+      # Fill these in the Render UI after the first apply:
+      - key: DATABASE_URL
+        sync: false   # pooler URL: postgresql+asyncpg://...:6543/postgres
+      - key: MIGRATION_DATABASE_URL
+        sync: false   # direct URL: postgresql+psycopg2://...:5432/postgres
+      - key: SECRET_KEY
+        generateValue: true   # Render generates a strong random value
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false   # service_role key (server-side only)
+      - key: SUPABASE_BUCKET
+        value: "images"
+      - key: REDIS_URL
+        sync: false   # full URL, e.g. rediss://default:<pw>@<host>:6379
+                      # Required for Upstash (TLS + auth). Leaving REDIS_HOST
+                      # / REDIS_PORT unset is fine — the URL takes priority.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_2
+        sync: false
+      - key: GEMINI_API_KEY_3
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_SERVER
+        sync: false
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_FROM_NAME
+        value: "BarberHub"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      # ----- Cross-origin allowlist -----
+      # Set FRONTEND_URL to your Vercel URL once the frontend is deployed.
+      - key: FRONTEND_URL
+        sync: false   # e.g. https://barberhub.vercel.app
+      - key: ALLOWED_HOSTS
+        sync: false   # e.g. barberhub-api.onrender.com

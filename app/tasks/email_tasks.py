@@ -1,6 +1,20 @@
+"""Email-sending tasks.
+
+Each task is exposed in two shapes:
+
+  * a plain async ``_impl`` coroutine (e.g. ``send_verification_email_impl``)
+    used by FastAPI BackgroundTasks when settings.USE_CELERY=False;
+  * a Celery task that wraps the coroutine via ``asyncio.run`` for the
+    docker-compose Celery+Redis worker.
+
+Call sites should NOT hit either directly — go through
+``app.tasks.dispatch.queue_*`` which picks the right path based on
+settings.USE_CELERY.
+"""
 import asyncio
 import builtins
 import logging
+from pathlib import Path
 from pydantic import SecretStr
 
 try:
@@ -9,6 +23,8 @@ except Exception:
     pass
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 from app.celery_app import celery_app
 from config import settings
 
@@ -27,91 +43,202 @@ conf = ConnectionConfig(
     VALIDATE_CERTS=True,
 )
 
+# Module-level Jinja env so templates load+compile once per worker, not per task.
+# autoescape protects against accidental injection if a value (e.g. salon_name)
+# contains user-controlled HTML.
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "email"
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+    autoescape=select_autoescape(["html", "xml"]),
+)
+
+
+def _render(template_name: str, **context) -> str:
+    return _jinja_env.get_template(template_name).render(**context)
+
+
 async def _send_mail_async(email: str, subject: str, body: str):
-    """Endpoint or Schema"""
+    """Send a single HTML email through Brevo SMTP."""
     message = MessageSchema(
         subject=subject,
         recipients=[email],
         body=body,
-        subtype=MessageType.html
+        subtype=MessageType.html,
     )
     fm = FastMail(conf)
     try:
-        print(f"[MAIL LOG] Starting to send email to {email}...", flush=True)
+        logger.info("Sending email to %s (subject=%s)", email, subject)
         await fm.send_message(message)
-        print(f"[MAIL LOG] Email sent successfully to {email}", flush=True)
-    except Exception as e:
-        print(f"[MAIL ERROR] Failed to send email to {email}: {str(e)}", flush=True)
-        raise e
+        logger.info("Email sent successfully to %s", email)
+    except Exception:
+        logger.exception("Failed to send email to %s", email)
+        raise
 
-@celery_app.task(name="send_verification_email_task", queue="email_queue")
-def send_verification_email_task(email: str, token: str):
-    """Endpoint or Schema"""
+
+# ---------------------------------------------------------------------------
+# Pure async implementations — safe to call directly from
+# FastAPI BackgroundTasks.add_task() on the free-tier deploy.
+# ---------------------------------------------------------------------------
+
+async def send_verification_email_impl(email: str, token: str) -> None:
     verify_url = f"{settings.FRONTEND_URL}/verify?token={token}"
-    body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; background:#0f0f0f; color:#f5f5f5; padding:40px;">
-      <div style="max-width:540px;margin:0 auto;background:#1a1a1a;border-radius:16px;padding:40px;border:1px solid #2a2a2a;">
-        <div style="text-align:center;margin-bottom:32px;">
-          <span style="font-size:28px;font-weight:900;letter-spacing:-1px;">
-            Barber<span style="color:#e8b84b;">Hub</span>
-          </span>
-        </div>
-        <h2 style="color:#f5f5f5;margin-bottom:12px;">Verify your email ✉️</h2>
-        <p style="color:#999;line-height:1.6;">Click the button below to confirm your email address and complete your registration.</p>
-        <div style="text-align:center;margin:32px 0;">
-          <a href="{verify_url}" style="background:#e8b84b;color:#0f0f0f;padding:14px 32px;border-radius:10px;font-weight:700;font-size:16px;text-decoration:none;display:inline-block;">
-            Verify Email Address
-          </a>
-        </div>
-        <p style="color:#666;font-size:13px;">If you didn't create a BarberHub account, you can safely ignore this email.</p>
-        <hr style="border:none;border-top:1px solid #2a2a2a;margin:24px 0;" />
-        <p style="color:#555;font-size:12px;text-align:center;">© 2026 BarberHub. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-    """
-    asyncio.run(_send_mail_async(email, "Verify your BarberHub account", body))
+    body = _render("verification.html", verify_url=verify_url)
+    await _send_mail_async(email, "Verify your BarberHub account", body)
 
-@celery_app.task(name="send_password_reset_email_task", queue="email_queue")
-def send_password_reset_email_task(email: str, token: str):
-    """Endpoint or Schema"""
+
+async def send_password_reset_email_impl(email: str, token: str) -> None:
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
-    body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; background:#0f0f0f; color:#f5f5f5; padding:40px;">
-      <div style="max-width:540px;margin:0 auto;background:#1a1a1a;border-radius:16px;padding:40px;border:1px solid #2a2a2a;">
-        <div style="text-align:center;margin-bottom:32px;">
-          <span style="font-size:28px;font-weight:900;letter-spacing:-1px;">
-            Barber<span style="color:#e8b84b;">Hub</span>
-          </span>
-        </div>
-        <h2 style="color:#f5f5f5;margin-bottom:12px;">Reset your password 🔐</h2>
-        <p style="color:#999;line-height:1.6;">We received a request to reset your password. Click the button below to choose a new one. This link will expire in 1 hour.</p>
-        <div style="text-align:center;margin:32px 0;">
-          <a href="{reset_url}" style="background:#e8b84b;color:#0f0f0f;padding:14px 32px;border-radius:10px;font-weight:700;font-size:16px;text-decoration:none;display:inline-block;">
-            Reset Password
-          </a>
-        </div>
-        <p style="color:#666;font-size:13px;">If you didn't request this, you can safely ignore this email. Your password will remain unchanged.</p>
-        <hr style="border:none;border-top:1px solid #2a2a2a;margin:24px 0;" />
-        <p style="color:#555;font-size:12px;text-align:center;">© 2026 BarberHub. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-    """
-    asyncio.run(_send_mail_async(email, "Reset your BarberHub password", body))
+    body = _render("password_reset.html", reset_url=reset_url)
+    await _send_mail_async(email, "Reset your BarberHub password", body)
 
-@celery_app.task(name="send_booking_reminder_task", queue="email_queue")
-def send_booking_reminder_task(email: str, time_str: str):
-    """Endpoint or Schema"""
-    body = f"""
-    <html>
-        <body>
-            <h3>Upcoming Appointment Reminder</h3>
-            <p>Friendly reminder: You have a booking in 2 hours at <b>{time_str}</b>.</p>
-            <p>See you soon!</p>
-        </body>
-    </html>
-    """
-    asyncio.run(_send_mail_async(email, "Booking Reminder", body))
+
+async def send_booking_confirmation_impl(
+    client_email: str,
+    staff_email: str,
+    client_name: str,
+    service_name: str,
+    time_str: str,
+    salon_name: str,
+) -> None:
+    client_body = _render(
+        "booking_confirmation_client.html",
+        salon_name=salon_name,
+        service_name=service_name,
+        time_str=time_str,
+    )
+    staff_body = _render(
+        "booking_confirmation_staff.html",
+        client_name=client_name,
+        service_name=service_name,
+        time_str=time_str,
+    )
+    await _send_mail_async(
+        client_email, f"Booking confirmed at {salon_name}", client_body
+    )
+    if staff_email:
+        await _send_mail_async(
+            staff_email, f"New booking from {client_name}", staff_body
+        )
+
+
+async def send_booking_reminder_impl(email: str, time_str: str) -> None:
+    body = _render("booking_reminder.html", time_str=time_str)
+    await _send_mail_async(email, "Booking Reminder", body)
+
+
+async def send_booking_cancelled_impl(
+    client_email: str,
+    service_name: str,
+    time_str: str,
+    salon_name: str,
+    cancelled_by: str = "",
+) -> None:
+    body = _render(
+        "booking_cancelled.html",
+        salon_name=salon_name,
+        service_name=service_name,
+        time_str=time_str,
+        cancelled_by=cancelled_by,
+    )
+    await _send_mail_async(
+        client_email, f"Booking cancelled at {salon_name}", body
+    )
+
+
+# ---------------------------------------------------------------------------
+# Celery wrappers — each is a thin sync shim that runs the impl in a fresh
+# event loop. The worker container picks these up via celery_app.include.
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="send_verification_email_task",
+    queue="email_queue",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def send_verification_email_task(self, email: str, token: str):
+    try:
+        asyncio.run(send_verification_email_impl(email, token))
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="send_password_reset_email_task",
+    queue="email_queue",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def send_password_reset_email_task(self, email: str, token: str):
+    try:
+        asyncio.run(send_password_reset_email_impl(email, token))
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="send_booking_confirmation_task",
+    queue="email_queue",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def send_booking_confirmation_task(
+    self,
+    client_email: str,
+    staff_email: str,
+    client_name: str,
+    service_name: str,
+    time_str: str,
+    salon_name: str,
+):
+    try:
+        asyncio.run(
+            send_booking_confirmation_impl(
+                client_email, staff_email, client_name,
+                service_name, time_str, salon_name,
+            )
+        )
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="send_booking_reminder_task",
+    queue="email_queue",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def send_booking_reminder_task(self, email: str, time_str: str):
+    try:
+        asyncio.run(send_booking_reminder_impl(email, time_str))
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="send_booking_cancelled_task",
+    queue="email_queue",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def send_booking_cancelled_task(
+    self,
+    client_email: str,
+    service_name: str,
+    time_str: str,
+    salon_name: str,
+    cancelled_by: str = "",
+):
+    try:
+        asyncio.run(
+            send_booking_cancelled_impl(
+                client_email, service_name, time_str, salon_name, cancelled_by,
+            )
+        )
+    except Exception as exc:
+        raise self.retry(exc=exc)

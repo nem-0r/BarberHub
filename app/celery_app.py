@@ -7,20 +7,15 @@ except ImportError:
 
 from celery import Celery
 from config import settings
+from app import register_models
 
-import app.users.models
-import app.salons.models
-import app.staff.models
-import app.services.models
-import app.staff_services.models
-import app.schedules.models
-import app.bookings.models
-import app.reviews.models
+register_models()
 
+_broker_url = settings.effective_redis_url(0)
 celery_app = Celery(
     "worker",
-    broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
-    backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
+    broker=_broker_url,
+    backend=_broker_url,
     include=[
         "app.tasks.email_tasks",
         "app.tasks.periodic_tasks",
@@ -46,5 +41,13 @@ celery_app.conf.beat_schedule = {
     "reminder-every-10-minutes": {
         "task": "check_upcoming_bookings_task",
         "schedule": 600.0,
+    },
+    "mark-no-show-every-15-minutes": {
+        "task": "mark_no_show_bookings_task",
+        "schedule": 900.0,
+    },
+    "cancel-stale-pending-every-15-minutes": {
+        "task": "cancel_stale_pending_task",
+        "schedule": 900.0,
     },
 }

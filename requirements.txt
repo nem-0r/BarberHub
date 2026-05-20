@@ -1,20 +1,35 @@
-fastapi
-uvicorn[standard]
-sqlmodel
-sqlalchemy[asyncio]
-asyncpg
-pydantic>=2.0.0
-pydantic-settings
-passlib[bcrypt]
+# NOTE: upper bounds guard a fresh Docker build from a surprise major
+# version (e.g. pydantic 3, SQLAlchemy 3) silently breaking the image.
+# For fully reproducible builds, generate exact pins from a known-good
+# build:  `pip freeze > requirements.lock`  and install from that in CI/prod.
+fastapi<1
+uvicorn[standard]<1
+gunicorn<24
+sqlmodel<1
+sqlalchemy[asyncio]>=2.0,<3
+asyncpg<1
+# Sync driver for the isolated RAG/pgvector engine (see vector_db.py).
+# The app's main engine still uses asyncpg. pgvector needs no Python
+# adapter here — we bind embeddings as text literals cast to ::vector.
+psycopg2-binary<3
+pydantic>=2.0.0,<3
+pydantic-settings<3
+passlib[bcrypt]<2
 bcrypt==4.0.1
-python-jose[cryptography]
-redis
-alembic
+python-jose[cryptography]<4
+google-auth<3
+redis>=5,<6
+alembic>=1.13,<2
 
 # --- Base Dependencies ---
 celery
 flower
+# In-process periodic scheduler — used when USE_CELERY=False (free-tier deploys).
+# Cheap dep (~1 MB) so we keep it in dev requirements too so toggling the flag
+# works locally without a separate pip install step.
+apscheduler>=3.10,<4
 fastapi-mail>=1.4.1
+jinja2
 email-validator
 itsdangerous
 elasticsearch==8.13.0
@@ -23,3 +38,10 @@ Pillow
 python-multipart
 pyinstrument
 supabase
+
+# --- ML Dependencies ---
+scikit-learn
+pandas
+joblib
+matplotlib
+seaborn

@@ -1,0 +1,51 @@
+# Production requirements — minimal footprint for free-tier hosts (Render/Fly).
+#
+# Key omissions vs requirements.txt:
+#   * torch / sentence-transformers / transformers — Gemini API handles
+#     embeddings in prod (EMBEDDER_PROVIDER=gemini, ~3 GB RAM saved).
+#   * chromadb — prod uses pgvector (RAG_BACKEND=pgvector). vector_db.py
+#     imports chroma lazily, so it only blows up if the backend flag is wrong.
+#   * matplotlib / seaborn / fpdf2 / ragas / PyPDF2 / python-docx /
+#     safetensors — used by offline RAG ingest, eval & ML training scripts;
+#     never executed inside the running API.
+#
+# Keep this file pip-installable on Python 3.11. Pin upper bounds only — see
+# requirements.txt header for the rationale.
+
+fastapi<1
+uvicorn[standard]<1
+gunicorn<24
+sqlmodel<1
+sqlalchemy[asyncio]>=2.0,<3
+asyncpg<1
+psycopg2-binary<3
+pydantic>=2.0.0,<3
+pydantic-settings<3
+passlib[bcrypt]<2
+bcrypt==4.0.1
+python-jose[cryptography]<4
+google-auth<3
+redis>=5,<6
+alembic>=1.13,<2
+
+# Backend deps
+celery
+fastapi-mail>=1.4.1
+jinja2
+email-validator
+itsdangerous
+slowapi
+Pillow
+python-multipart
+supabase
+
+# In-process scheduler — replaces Celery beat when USE_CELERY=False
+apscheduler>=3.10,<4
+
+# Gemini embeddings + LLM (rotator)
+google-generativeai>=0.8.0,<1
+
+# ML inference for /ml/evaluate-barber (joblib-pickled sklearn model)
+scikit-learn
+pandas
+joblib

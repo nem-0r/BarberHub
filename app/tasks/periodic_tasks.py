@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from celery.utils.log import get_task_logger
 
 from app.celery_app import celery_app
@@ -18,22 +18,30 @@ from sqlmodel import select
 logger = get_task_logger(__name__)
 
 async def _check_and_send_reminders():
-    """Endpoint or Schema"""
-    from app.tasks.email_tasks import send_booking_reminder_task
-    
-    now = datetime.utcnow()
+    """Check for bookings starting in ~2 hours and send reminders (once per booking)."""
+    from app.tasks.dispatch import queue_booking_reminder
+    import redis.asyncio as aioredis
+    from config import settings
+
+    now = datetime.now(timezone.utc)
     reminder_window_start = now + timedelta(hours=1, minutes=55)
     reminder_window_end = now + timedelta(hours=2, minutes=5)
-    
+
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlmodel.ext.asyncio.session import AsyncSession
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import NullPool
-    from config import settings
 
-    temp_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    # Mirror database.py: when DATABASE_URL points at pgbouncer transaction-mode
+    # (DB_PGBOUNCER=True), asyncpg's prepared-statement cache MUST be off — the
+    # pooled connection is not stable across statements. Without this, periodic
+    # sweeps blow up with "prepared statement '__asyncpg_...' already exists".
+    _kw = {"statement_cache_size": 0} if settings.DB_PGBOUNCER else {}
+    temp_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, connect_args=_kw)
     async_session = sessionmaker(temp_engine, class_=AsyncSession, expire_on_commit=False)
-    
+
+    r = aioredis.from_url(settings.effective_redis_url(2), decode_responses=True)
+
     try:
         async with async_session() as session:
             statement = select(Booking).options(
@@ -45,16 +53,130 @@ async def _check_and_send_reminders():
             )
             result = await session.exec(statement)
             bookings = result.all()
-            
+
             for booking in bookings:
+                reminder_key = f"reminder_sent:{booking.id}"
+                already_sent = await r.exists(reminder_key)
+                if already_sent:
+                    continue
+
                 user = booking.client
                 if user and user.email:
                     logger.info(f"Sending reminder to {user.email} for booking {booking.id}")
-                    send_booking_reminder_task.delay(user.email, str(booking.start_time))
+                    queue_booking_reminder(user.email, str(booking.start_time))
+                    # Mark as sent, expire after 3 hours (well past the booking time)
+                    await r.setex(reminder_key, 10800, "1")
     finally:
+        await r.close()
         await temp_engine.dispose()
 
 @celery_app.task(name="check_upcoming_bookings_task", queue="celery")
 def check_upcoming_bookings_task():
     """Endpoint or Schema"""
     asyncio.run(_check_and_send_reminders())
+
+
+async def _mark_no_shows():
+    """Move stale 'confirmed' bookings to 'no_show' once a grace window has passed
+    after their end_time. We bound the lookback window so the first run after
+    deploy doesn't sweep months of historical confirmed-but-never-completed rows
+    (only the last 24h are eligible)."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlmodel.ext.asyncio.session import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import NullPool
+    from config import settings
+
+    now = datetime.now(timezone.utc)
+    grace = timedelta(minutes=30)
+    lookback = timedelta(hours=24)
+
+    # Mirror database.py: when DATABASE_URL points at pgbouncer transaction-mode
+    # (DB_PGBOUNCER=True), asyncpg's prepared-statement cache MUST be off — the
+    # pooled connection is not stable across statements. Without this, periodic
+    # sweeps blow up with "prepared statement '__asyncpg_...' already exists".
+    _kw = {"statement_cache_size": 0} if settings.DB_PGBOUNCER else {}
+    temp_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, connect_args=_kw)
+    async_session = sessionmaker(temp_engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with async_session() as session:
+            stmt = select(Booking).where(
+                Booking.status == BookingStatus.confirmed,
+                Booking.end_time <= now - grace,
+                Booking.end_time >= now - lookback,
+            )
+            result = await session.exec(stmt)
+            stale = result.all()
+            if not stale:
+                return
+            for b in stale:
+                b.status = BookingStatus.no_show
+                session.add(b)
+            await session.commit()
+            logger.info("Marked %d bookings as no_show", len(stale))
+    finally:
+        await temp_engine.dispose()
+
+
+@celery_app.task(name="mark_no_show_bookings_task", queue="celery")
+def mark_no_show_bookings_task():
+    """Periodic sweep: confirmed → no_show after end_time + 30 min grace."""
+    asyncio.run(_mark_no_shows())
+
+
+async def _cancel_stale_pending():
+    """Reconcile orphaned 'pending' bookings → 'cancelled'.
+
+    New bookings are auto-confirmed, so 'pending' is a legacy/dead state. A
+    pending whose end_time has passed never became a real appointment, so the
+    honest terminal state is 'cancelled' — NOT 'no_show' (the client was never
+    confirmed) and NOT 'completed' (no service happened). Because 'cancelled'
+    affects neither revenue nor no-show stats, there is no age hazard here
+    (unlike _mark_no_shows): we deliberately set NO lookback floor so old
+    legacy rows are caught too. Batched so a large backlog drains across runs
+    instead of one giant transaction. Idempotent: cancelled rows aren't
+    re-selected. No email is sent — these are dead records, not user actions."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlmodel.ext.asyncio.session import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import NullPool
+    from config import settings
+
+    now = datetime.now(timezone.utc)
+    grace = timedelta(minutes=30)
+    batch = 500
+
+    # Mirror database.py: when DATABASE_URL points at pgbouncer transaction-mode
+    # (DB_PGBOUNCER=True), asyncpg's prepared-statement cache MUST be off — the
+    # pooled connection is not stable across statements. Without this, periodic
+    # sweeps blow up with "prepared statement '__asyncpg_...' already exists".
+    _kw = {"statement_cache_size": 0} if settings.DB_PGBOUNCER else {}
+    temp_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, connect_args=_kw)
+    async_session = sessionmaker(temp_engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with async_session() as session:
+            stmt = (
+                select(Booking)
+                .where(
+                    Booking.status == BookingStatus.pending,
+                    Booking.end_time <= now - grace,
+                )
+                .limit(batch)
+            )
+            result = await session.exec(stmt)
+            stale = result.all()
+            if not stale:
+                return
+            for b in stale:
+                b.status = BookingStatus.cancelled
+                session.add(b)
+            await session.commit()
+            logger.info("Cancelled %d stale pending bookings", len(stale))
+    finally:
+        await temp_engine.dispose()
+
+
+@celery_app.task(name="cancel_stale_pending_task", queue="celery")
+def cancel_stale_pending_task():
+    """Periodic sweep: pending → cancelled once end_time + 30 min has passed."""
+    asyncio.run(_cancel_stale_pending())

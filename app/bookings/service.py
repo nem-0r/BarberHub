@@ -1,11 +1,15 @@
+import logging
 import uuid
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.orm import aliased
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
 from app.bookings.models import Booking, BookingStatus
-from app.bookings.schemas import BookingCreate, BookingStatusUpdate
+from app.bookings.schemas import BookingCreate, BookingStatusUpdate, BookingRead
 from app.services.models import Service
 from app.staff_services.models import StaffService
 from app.schedules.models import Schedule
@@ -15,6 +19,33 @@ from app.users.models import User, UserRole
 from app.exceptions import BookingConflictError, AvailabilityError
 
 
+def _resolve_salon_tz(tz_name: Optional[str]) -> ZoneInfo:
+    """Get an IANA ZoneInfo, falling back to UTC for missing or invalid values."""
+    if not tz_name:
+        return ZoneInfo("UTC")
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+def _utc_aware_to_salon_local(dt_utc: datetime, salon_tz: ZoneInfo) -> datetime:
+    """Convert an aware-UTC datetime to a naive datetime in the salon's
+    local timezone for comparison with Schedule."""
+    return dt_utc.astimezone(salon_tz).replace(tzinfo=None)
+
+logger = logging.getLogger(__name__)
+
+# Valid status transitions
+ALLOWED_TRANSITIONS: dict[BookingStatus, list[BookingStatus]] = {
+    BookingStatus.pending: [BookingStatus.confirmed, BookingStatus.cancelled],
+    BookingStatus.confirmed: [BookingStatus.completed, BookingStatus.cancelled, BookingStatus.no_show],
+    BookingStatus.cancelled: [],
+    BookingStatus.completed: [],
+    BookingStatus.no_show: [],
+}
+
+
 async def _check_double_booking(
     staff_id: uuid.UUID,
     start_time,
@@ -22,13 +53,15 @@ async def _check_double_booking(
     session: AsyncSession,
     exclude_id: Optional[uuid.UUID] = None,
 ):
-    """Raise BookingConflictError if the barber already has an overlapping confirmed/pending booking."""
+    """Raise BookingConflictError if the barber already has an overlapping confirmed/pending booking.
+    Uses FOR UPDATE to prevent race conditions."""
     query = select(Booking).where(
         Booking.staff_id == staff_id,
         Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
         Booking.start_time < end_time,
         Booking.end_time > start_time,
-    )
+    ).with_for_update()
+
     if exclude_id:
         query = query.where(Booking.id != exclude_id)
     result = await session.exec(query)
@@ -43,10 +76,16 @@ async def _check_staff_availability(
     staff_id: uuid.UUID,
     start_time,
     end_time,
+    salon_tz: ZoneInfo,
     session: AsyncSession,
 ):
-    """Raise AvailabilityError if the booking is outside staff working hours or on a day off."""
-    day_of_week = start_time.weekday()  # 0=Monday, 6=Sunday
+    """Raise AvailabilityError if the booking is outside staff working hours
+    or on a day off. start_time/end_time are naive UTC; we project them into
+    the salon's local timezone before comparing against Schedule (which lives
+    in salon-local time-of-day and Mon=0..Sun=6 weekday)."""
+    local_start = _utc_aware_to_salon_local(start_time, salon_tz)
+    local_end = _utc_aware_to_salon_local(end_time, salon_tz)
+    day_of_week = local_start.weekday()  # 0=Monday, 6=Sunday in salon-local
     result = await session.exec(
         select(Schedule).where(
             Schedule.staff_id == staff_id,
@@ -58,8 +97,8 @@ async def _check_staff_availability(
     if not schedule or schedule.is_day_off:
         raise AvailabilityError("Staff is off duty on this day.")
 
-    booking_start = start_time.time()
-    booking_end = end_time.time()
+    booking_start = local_start.time()
+    booking_end = local_end.time()
 
     if booking_start < schedule.start_time or booking_end > schedule.end_time:
         raise AvailabilityError(
@@ -68,58 +107,151 @@ async def _check_staff_availability(
         )
 
 
-async def get_all_bookings(session: AsyncSession) -> List[Booking]:
-    result = await session.exec(select(Booking))
-    return result.all()
+def _enriched_select():
+    """Booking + client name + service name + staff (user) name + salon timezone
+    in one query. Outer joins so a booking with a deleted child still serializes."""
+    StaffUser = aliased(User)
+    return (
+        select(
+            Booking,
+            User.full_name.label("client_full_name"),
+            Service.name.label("service_name"),
+            StaffUser.full_name.label("staff_full_name"),
+            Salon.timezone.label("salon_timezone"),
+        )
+        .outerjoin(User, User.id == Booking.client_id)
+        .outerjoin(Service, Service.id == Booking.service_id)
+        .outerjoin(Staff, Staff.id == Booking.staff_id)
+        .outerjoin(StaffUser, StaffUser.id == Staff.user_id)
+        .outerjoin(Salon, Salon.id == Staff.salon_id)
+    )
+
+
+def _rows_to_reads(rows) -> List[BookingRead]:
+    return [
+        BookingRead(
+            **booking.model_dump(),
+            client_full_name=client_name,
+            service_name=service_name,
+            staff_full_name=staff_name,
+            salon_timezone=salon_tz,
+        )
+        for booking, client_name, service_name, staff_name, salon_tz in rows
+    ]
+
+
+async def get_all_bookings(session: AsyncSession, skip: int = 0, limit: int = 50) -> List[BookingRead]:
+    result = await session.exec(_enriched_select().offset(skip).limit(limit))
+    return _rows_to_reads(result.all())
 
 
 async def get_booking_by_id(booking_id: uuid.UUID, session: AsyncSession) -> Optional[Booking]:
     return await session.get(Booking, booking_id)
 
 
-async def get_bookings_for_client(client_id: uuid.UUID, session: AsyncSession) -> List[Booking]:
-    result = await session.exec(select(Booking).where(Booking.client_id == client_id))
-    return result.all()
+async def get_bookings_for_client(client_id: uuid.UUID, session: AsyncSession) -> List[BookingRead]:
+    result = await session.exec(_enriched_select().where(Booking.client_id == client_id))
+    return _rows_to_reads(result.all())
 
 
-async def get_bookings_for_staff(staff_id: uuid.UUID, session: AsyncSession, current_user: User) -> List[Booking]:
-    staff = await session.get(Staff, staff_id)
-    if not staff:
+async def get_bookings_for_staff(staff_id: uuid.UUID, session: AsyncSession, current_user: User) -> List[BookingRead]:
+    # Single query to load staff + salon owner id so we can do all access checks
+    # without three separate round-trips.
+    result = await session.exec(
+        select(Staff, Salon.owner_id)
+        .join(Salon, Salon.id == Staff.salon_id)
+        .where(Staff.id == staff_id)
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Staff not found")
-        
-    salon = await session.get(Salon, staff.salon_id)
-    
+    staff, salon_owner_id = row
+
     if current_user.role == UserRole.staff and str(staff.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to view other staff bookings")
-    elif current_user.role == UserRole.owner and str(salon.owner_id) != str(current_user.id):
+    elif current_user.role == UserRole.owner and str(salon_owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to view bookings of this salon")
-        
-    result = await session.exec(select(Booking).where(Booking.staff_id == staff_id))
-    return result.all()
+
+    bookings_res = await session.exec(_enriched_select().where(Booking.staff_id == staff_id))
+    return _rows_to_reads(bookings_res.all())
 
 
-async def get_bookings_for_salon(salon_id: uuid.UUID, session: AsyncSession) -> List[Booking]:
-    statement = select(Booking).join(Staff).where(Staff.salon_id == salon_id)
+async def get_bookings_for_salon(salon_id: uuid.UUID, session: AsyncSession) -> List[BookingRead]:
+    # _enriched_select already joins Staff; reuse that join for the salon filter.
+    statement = _enriched_select().where(Staff.salon_id == salon_id)
     result = await session.exec(statement)
-    return result.all()
+    return _rows_to_reads(result.all())
 
 
 async def create_booking(data: BookingCreate, session: AsyncSession) -> Booking:
     service = await session.get(Service, data.service_id)
     if not service:
+        logger.warning(
+            "[booking-reject] service_not_found client=%s staff=%s service=%s",
+            data.client_id, data.staff_id, data.service_id,
+        )
         raise HTTPException(status_code=404, detail="Service not found.")
+    if not service.is_active:
+        logger.warning(
+            "[booking-reject] service_inactive client=%s staff=%s service=%s",
+            data.client_id, data.staff_id, data.service_id,
+        )
+        raise HTTPException(status_code=400, detail="This service is currently unavailable.")
 
-    end_time = data.start_time + timedelta(minutes=service.duration_minutes)
+    # Normalize start_time to tz-aware UTC once; reuse for all downstream checks.
+    now_utc = datetime.now(timezone.utc)
+    start_utc = (
+        data.start_time.astimezone(timezone.utc)
+        if data.start_time.tzinfo is not None
+        else data.start_time.replace(tzinfo=timezone.utc)
+    )
+    end_time = start_utc + timedelta(minutes=service.duration_minutes)
+    if start_utc < now_utc:
+        logger.warning(
+            "[booking-reject] in_past start=%s now=%s client=%s staff=%s",
+            start_utc.isoformat(), now_utc.isoformat(), data.client_id, data.staff_id,
+        )
+        raise HTTPException(status_code=400, detail="Cannot book in the past.")
 
-    await _check_staff_availability(data.staff_id, data.start_time, end_time, session)
-    await _check_double_booking(data.staff_id, data.start_time, end_time, session)
+    # Check staff is active
+    staff = await session.get(Staff, data.staff_id)
+    if not staff or not staff.is_active:
+        logger.warning(
+            "[booking-reject] staff_inactive_or_missing staff=%s service=%s",
+            data.staff_id, data.service_id,
+        )
+        raise HTTPException(status_code=400, detail="Staff member is not available.")
 
+    # Check staff provides this service
     staff_service = await session.get(StaffService, (data.staff_id, data.service_id))
-    if staff_service and staff_service.custom_price is not None:
+    if not staff_service:
+        logger.warning(
+            "[booking-reject] staff_service_not_linked staff=%s service=%s "
+            "(barber not assigned this service in staff_services)",
+            data.staff_id, data.service_id,
+        )
+        raise HTTPException(status_code=400, detail="This staff member does not provide the selected service.")
+
+    # Salon timezone — needed to project the booking's UTC start/end into salon-local
+    # time-of-day for the working-hours/day-of-week check.
+    salon = await session.get(Salon, staff.salon_id)
+    salon_tz = _resolve_salon_tz(salon.timezone if salon else None)
+
+    # Advisory lock on staff_id to serialize bookings for the same barber
+    lock_key = int(data.staff_id.int % (2**31))
+    await session.exec(text(f"SELECT pg_advisory_xact_lock({lock_key})"))
+
+    await _check_staff_availability(data.staff_id, start_utc, end_time, salon_tz, session)
+    await _check_double_booking(data.staff_id, start_utc, end_time, session)
+
+    if staff_service.custom_price is not None:
         final_price = staff_service.custom_price
     else:
         final_price = service.base_price
 
+    # Auto-confirm policy: an available slot inside the barber's working hours
+    # is considered immediately bookable — no manual approval step. Owners/staff
+    # can still cancel later via PATCH /status or POST /cancel.
     booking = Booking(
         client_id=data.client_id,
         staff_id=data.staff_id,
@@ -127,50 +259,151 @@ async def create_booking(data: BookingCreate, session: AsyncSession) -> Booking:
         start_time=data.start_time,
         end_time=end_time,
         final_price=final_price,
-        status=BookingStatus.pending,
+        status=BookingStatus.confirmed,
     )
     session.add(booking)
     await session.commit()
     await session.refresh(booking)
+
+    # Fire-and-forget confirmation emails (Celery or in-process — dispatcher
+    # picks based on settings.USE_CELERY). Email failures must never block
+    # booking creation, but we log them — silently swallowing would make
+    # missed-notification incidents impossible to debug.
+    try:
+        client = await session.get(User, data.client_id)
+        staff_user = await session.get(User, staff.user_id) if staff.user_id else None
+        if client and client.email:
+            # Format the time string in salon-local TZ so client/barber see the
+            # actual appointment time, not raw UTC.
+            local_dt = _utc_aware_to_salon_local(data.start_time, salon_tz)
+            time_str = local_dt.strftime("%d %b %Y %H:%M")
+            from app.tasks.dispatch import queue_booking_confirmation
+            queue_booking_confirmation(
+                client_email=client.email,
+                staff_email=staff_user.email if staff_user else "",
+                client_name=client.full_name or client.email,
+                service_name=service.name,
+                time_str=time_str,
+                salon_name=salon.name if salon else "the salon",
+            )
+    except Exception:
+        logger.exception(
+            "Failed to enqueue booking confirmation email for booking %s", booking.id
+        )
+
     return booking
+
+
+def _role_label(user: User) -> str:
+    """Human-readable cancellation actor for email notifications."""
+    if user.role == UserRole.client:
+        return "the client"
+    if user.role == UserRole.staff:
+        return "the barber"
+    if user.role == UserRole.owner:
+        return "the salon"
+    return "an administrator"
+
+
+async def _enqueue_cancellation_email(booking: Booking, session: AsyncSession, cancelled_by: str) -> None:
+    """Best-effort cancellation email to the client. Failures are logged but
+    must never propagate — the cancel itself has already committed."""
+    try:
+        client = await session.get(User, booking.client_id)
+        if not client or not client.email:
+            return
+        service = await session.get(Service, booking.service_id)
+        staff = await session.get(Staff, booking.staff_id)
+        salon = await session.get(Salon, staff.salon_id) if staff else None
+        salon_tz = _resolve_salon_tz(salon.timezone if salon else None)
+        local_dt = _utc_aware_to_salon_local(booking.start_time, salon_tz)
+        from app.tasks.dispatch import queue_booking_cancelled
+        queue_booking_cancelled(
+            client_email=client.email,
+            service_name=service.name if service else "your appointment",
+            time_str=local_dt.strftime("%d %b %Y %H:%M"),
+            salon_name=salon.name if salon else "the salon",
+            cancelled_by=cancelled_by,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to enqueue cancellation email for booking %s", booking.id
+        )
 
 
 async def update_booking_status(
     booking_id: uuid.UUID, data: BookingStatusUpdate, session: AsyncSession, current_user: User
 ) -> Optional[Booking]:
-    booking = await session.get(Booking, booking_id)
-    if not booking:
+    # Load booking + staff.user_id + salon.owner_id in one JOIN instead of three round-trips.
+    joined = await session.exec(
+        select(Booking, Staff.user_id, Salon.owner_id)
+        .join(Staff, Staff.id == Booking.staff_id)
+        .join(Salon, Salon.id == Staff.salon_id)
+        .where(Booking.id == booking_id)
+    )
+    row = joined.first()
+    if not row:
         return None
-        
-    staff = await session.get(Staff, booking.staff_id)
-    salon = await session.get(Salon, staff.salon_id)
-    
-    if current_user.role == UserRole.staff and str(staff.user_id) != str(current_user.id):
+    booking, staff_user_id, salon_owner_id = row
+
+    # Validate state transition
+    allowed = ALLOWED_TRANSITIONS.get(booking.status, [])
+    if data.status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot transition from '{booking.status.value}' to '{data.status.value}'. "
+                   f"Allowed: {[s.value for s in allowed]}"
+        )
+
+    if current_user.role == UserRole.staff and str(staff_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify this booking")
-    elif current_user.role == UserRole.owner and str(salon.owner_id) != str(current_user.id):
+    elif current_user.role == UserRole.owner and str(salon_owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify bookings for this salon")
-        
+
     booking.status = data.status
     session.add(booking)
     await session.commit()
     await session.refresh(booking)
+
+    if data.status == BookingStatus.cancelled:
+        await _enqueue_cancellation_email(booking, session, _role_label(current_user))
     return booking
 
 
 async def cancel_booking(booking_id: uuid.UUID, session: AsyncSession, current_user: User) -> Optional[Booking]:
-    booking = await session.get(Booking, booking_id)
-    if not booking:
-        return None
-        
-    # Owner specific check (client isolation is caught in routes initially, but we secure owner isolation here)  
+    # For owners we also need salon.owner_id for the isolation check — load both in one JOIN.
     if current_user.role == UserRole.owner:
-        staff = await session.get(Staff, booking.staff_id)
-        salon = await session.get(Salon, staff.salon_id)
-        if str(salon.owner_id) != str(current_user.id):
+        joined = await session.exec(
+            select(Booking, Salon.owner_id)
+            .join(Staff, Staff.id == Booking.staff_id)
+            .join(Salon, Salon.id == Staff.salon_id)
+            .where(Booking.id == booking_id)
+        )
+        row = joined.first()
+        if not row:
+            return None
+        booking, salon_owner_id = row
+        if str(salon_owner_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Not authorized to cancel bookings for this salon")
-            
+    else:
+        booking = await session.get(Booking, booking_id)
+        if not booking:
+            return None
+
+    # Idempotent for already-cancelled (frontend retry / double-click is harmless),
+    # but reject re-cancel of terminal completed/no_show — those are accounting facts.
+    if booking.status == BookingStatus.cancelled:
+        return booking
+    if booking.status in (BookingStatus.completed, BookingStatus.no_show):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel a booking that is already '{booking.status.value}'."
+        )
+
     booking.status = BookingStatus.cancelled
     session.add(booking)
     await session.commit()
     await session.refresh(booking)
+
+    await _enqueue_cancellation_email(booking, session, _role_label(current_user))
     return booking
