@@ -1,0 +1,11 @@
+{% extends "_layout.html" %}
+{% block content %}
+  <h2 style="color:#f5f5f5;margin-bottom:12px;">Verify your email ✉️</h2>
+  <p style="color:#999;line-height:1.6;">Click the button below to confirm your email address and complete your registration.</p>
+  <div style="text-align:center;margin:32px 0;">
+    <a href="{{ verify_url }}" style="background:#e8b84b;color:#0f0f0f;padding:14px 32px;border-radius:10px;font-weight:700;font-size:16px;text-decoration:none;display:inline-block;">
+      Verify Email Address
+    </a>
+  </div>
+  <p style="color:#666;font-size:13px;">If you didn't create a BarberHub account, you can safely ignore this email.</p>
+{% endblock %}

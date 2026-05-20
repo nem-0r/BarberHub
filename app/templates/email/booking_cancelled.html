@@ -1,0 +1,13 @@
+{% extends "_layout.html" %}
+{% block content %}
+  <h2 style="color:#f5f5f5;margin-bottom:12px;">Booking Cancelled ❌</h2>
+  <p style="color:#999;line-height:1.6;">Your appointment at <b>{{ salon_name }}</b> has been cancelled.</p>
+  <div style="background:#222;border-radius:12px;padding:20px;margin:24px 0;">
+    <p style="margin:0 0 8px;color:#f5f5f5;">✂️ Service: <b>{{ service_name }}</b></p>
+    <p style="margin:0 0 8px;color:#f5f5f5;">🕐 Time: <b>{{ time_str }}</b></p>
+    {% if cancelled_by %}
+    <p style="margin:0;color:#f5f5f5;">📝 Cancelled by: <b>{{ cancelled_by }}</b></p>
+    {% endif %}
+  </div>
+  <p style="color:#666;font-size:13px;">You can book a new appointment from your BarberHub dashboard at any time.</p>
+{% endblock %}
