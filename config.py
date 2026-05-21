@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     MAIL_PORT: int = 587
     MAIL_SERVER: str = ""
     MAIL_FROM_NAME: str = "Barbershop App"
+    # When set, mail is sent via Brevo's Transactional Email HTTP API instead
+    # of SMTP. Required on hosts that block outbound SMTP (e.g. Render Free,
+    # which silently drops port 587). Generate at:
+    # https://app.brevo.com → SMTP & API → API Keys (NOT the SMTP credentials).
+    # Empty → fall back to the SMTP path (docker-compose dev, VPS deploys).
+    BREVO_API_KEY: str = ""
     
     # Supabase
     SUPABASE_URL: str = ""

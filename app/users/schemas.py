@@ -82,6 +82,11 @@ class ForgotPasswordRequest(SQLModel):
     email: EmailStr
 
 
+class ResendVerificationRequest(SQLModel):
+    """Resend the email-verification link for an existing account."""
+    email: EmailStr
+
+
 class ResetPasswordConfirm(SQLModel):
     """Password reset confirmation schema."""
     new_password: str

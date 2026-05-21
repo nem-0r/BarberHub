@@ -480,6 +480,17 @@ export const api = {
     return await res.json()
   },
 
+  async resendVerification(email: string) {
+    const res = await fetch(`${API_BASE_URL}/users/resend-verification`, {
+      method: "POST",
+      credentials: "include",  // parity with apiFetch convention
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    })
+    if (!res.ok) throw await buildHttpError(res, "Could not resend verification email")
+    return (await res.json()) as { message: string }
+  },
+
   async resetPassword(token: string, newPassword: string) {
     const res = await fetch(`${API_BASE_URL}/users/reset-password/${token}`, {
       method: "POST",

@@ -1,12 +1,18 @@
+import logging
 import uuid
 from typing import Any, Dict, List, Optional
+
+from fastapi import BackgroundTasks
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
+
 from app.users.models import User, UserRole
 from app.users.schemas import UserCreate, UserUpdate
 from app.users.auth import hash_password
-from app.users.redis import invalidate_user_cache
+from app.users.redis import invalidate_user_cache, redis_client
 from app.exceptions import UserNotFoundError, EmailAlreadyExistsError
+
+logger = logging.getLogger(__name__)
 
 
 async def get_all_users(session: AsyncSession, skip: int = 0, limit: int = 50) -> List[User]:
@@ -19,8 +25,65 @@ async def get_user_by_id(user_id: uuid.UUID, session: AsyncSession) -> Optional[
 
 
 async def get_user_by_email(email: str, session: AsyncSession) -> Optional[User]:
-    result = await session.exec(select(User).where(User.email == email))
+    # Case-insensitive lookup — `Foo@Bar.com` should resolve to the same row
+    # as `foo@bar.com`. Pairs with `create_user` / `get_or_create_oauth_user`
+    # which both normalize the stored value to lower-case. Historic rows
+    # written before this normalization can still be migrated by hand if
+    # needed (`UPDATE users SET email = lower(email)`).
+    normalized = email.strip().lower()
+    result = await session.exec(select(User).where(User.email == normalized))
     return result.first()
+
+
+async def resend_verification_email(
+    email: str,
+    session: AsyncSession,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Re-issue an email-verification link for an unverified password account.
+
+    Silent no-op (does NOT raise) for every reason a real account couldn't or
+    shouldn't receive one — non-existent email, already verified, OAuth-only
+    account, Redis throttle hit. This prevents user-enumeration: the route
+    always returns the same generic 200 response regardless of state.
+
+    Per-email throttle is enforced via Redis ``SET NX EX 60``, so a known
+    target email can't be spammed even by an attacker rotating IPs (which
+    bypasses slowapi's IP-level limit).
+    """
+    normalized = email.strip().lower()
+    throttle_key = f"resend_throttle:{normalized}"
+    try:
+        # nx=True → only sets if missing → returns None/False if already there.
+        was_set = await redis_client.set(throttle_key, "1", nx=True, ex=60)
+        if not was_set:
+            logger.info("Resend verification throttled (60s) for %s", normalized)
+            return
+    except Exception:
+        # Redis outage shouldn't block legitimate resends — IP rate limit on
+        # the route still applies as defense-in-depth.
+        logger.warning("Redis throttle check failed for resend; proceeding without throttle.")
+
+    user = await get_user_by_email(email, session)
+    if user is None:
+        logger.info("Resend requested for non-existent email (silent no-op)")
+        return
+    if user.is_verified:
+        logger.info("Resend requested for already-verified user id=%s (silent no-op)", user.id)
+        return
+    if not user.password_hash:
+        # OAuth-only account — Google already verified the email, no point
+        # sending a password-account verification link they can't use.
+        logger.info("Resend requested for OAuth-only user id=%s (silent no-op)", user.id)
+        return
+
+    # Lazy imports avoid circulars (dispatch → email_tasks → celery_app …).
+    from app.users.auth_verification import generate_verification_token
+    from app.tasks.dispatch import queue_verification_email
+
+    token = generate_verification_token(user.email)
+    queue_verification_email(user.email, token, background_tasks=background_tasks)
+    logger.info("Verification email queued for user id=%s", user.id)
 
 
 async def create_user(data: UserCreate, session: AsyncSession) -> User:
@@ -33,6 +96,7 @@ async def create_user(data: UserCreate, session: AsyncSession) -> User:
         raise EmailAlreadyExistsError()
 
     user_data = data.model_dump()
+    user_data["email"] = user_data["email"].strip().lower()  # normalize for case-insensitive lookups
     user_data["password_hash"] = hash_password(user_data.pop("password"))
     user_data["role"] = UserRole.client  # Always force client role on registration
     user = User(**user_data)
@@ -61,6 +125,11 @@ async def get_or_create_oauth_user(
       3. No match → create a fresh OAuth-only account (no password_hash, no phone;
          phone is collected later on first booking).
     """
+    # Normalize Google-provided email — match the same lower-case convention
+    # the password-account flow uses, so a Google sign-in for `Foo@Bar.com`
+    # still finds the existing password account stored as `foo@bar.com`.
+    email = (email or "").strip().lower()
+
     # 1) by google_sub
     result = await session.exec(select(User).where(User.google_sub == google_sub))
     user = result.first()

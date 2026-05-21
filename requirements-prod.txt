@@ -42,6 +42,12 @@ supabase
 # In-process scheduler — replaces Celery beat when USE_CELERY=False
 apscheduler>=3.10,<4
 
+# Async HTTP client — used for Brevo Transactional Email HTTP API
+# (settings.BREVO_API_KEY path) and any future webhook integrations.
+# supabase-py already pulls it transitively; declaring explicitly so a
+# future dep change doesn't silently drop it.
+httpx>=0.27,<1
+
 # Gemini embeddings + LLM (rotator)
 google-generativeai>=0.8.0,<1
 

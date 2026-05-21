@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
 from config import settings
 from app.dependencies import get_current_user, oauth2_scheme, RoleChecker
-from app.users.schemas import UserCreate, UserUpdate, UserRead, UserLogin, GoogleOAuthRequest, ForgotPasswordRequest, ResetPasswordConfirm
+from app.users.schemas import UserCreate, UserUpdate, UserRead, UserLogin, GoogleOAuthRequest, ForgotPasswordRequest, ResetPasswordConfirm, ResendVerificationRequest
 import app.users.service as svc
 from app.users.auth import create_access_token, create_refresh_token, verify_password, decode_access_token, hash_password, dummy_verify_password
 from app.users.redis import block_token, is_token_blocked, mark_reset_token_as_used, is_reset_token_used, invalidate_user_cache
@@ -377,6 +377,33 @@ async def forgot_password(
         token = generate_password_reset_token(user.email)
         queue_password_reset_email(user.email, token, background_tasks=background_tasks)
     return {"message": "If this email is registered, a password reset link has been sent."}
+
+
+@router.post("/resend-verification", status_code=200)
+@limiter.limit("5/minute;20/hour")
+async def resend_verification(
+    request: Request,
+    data: ResendVerificationRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-issue the email verification link.
+
+    Always returns the same generic 200 response regardless of whether the
+    email exists, is verified, or belongs to an OAuth-only account — that
+    contract is the user-enumeration defense. The service layer enforces an
+    additional per-email Redis throttle (60s) on top of slowapi's IP-level
+    rate limit so a distributed attacker can't spam a known target email.
+    """
+    await svc.resend_verification_email(
+        data.email, session, background_tasks=background_tasks,
+    )
+    return {
+        "message": (
+            "If this email needs verification, we've sent a new link. "
+            "Check your inbox and the spam folder."
+        ),
+    }
 
 
 @router.post("/reset-password/{token}", status_code=200)

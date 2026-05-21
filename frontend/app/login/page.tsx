@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Eye, EyeOff, Scissors, ArrowRight, Phone } from "lucide-react"
@@ -28,6 +28,61 @@ function LoginContent() {
   const [error, setError] = useState<string | null>(null)
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
+  // Resend-verification state. Cooldown matches the backend's 60s per-email
+  // Redis throttle so the button doesn't lie about availability.
+  const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle")
+  const [resendError, setResendError] = useState<string | null>(null)
+  const [resendCooldown, setResendCooldown] = useState(0)
+
+  // Mounted flag — the resend handler awaits the API and may resolve after
+  // the user navigated away (router.push on success login etc.). Without
+  // this guard React logs "Can't perform a state update on an unmounted
+  // component" and any errors are confusing.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => { isMounted.current = false }
+  }, [])
+
+  // Countdown timer for the resend cooldown.
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [resendCooldown])
+
+  const handleResendVerification = async () => {
+    if (!unverifiedEmail || resendStatus === "sending" || resendCooldown > 0) return
+    setResendStatus("sending")
+    setResendError(null)
+    try {
+      await api.resendVerification(unverifiedEmail)
+      if (!isMounted.current) return
+      setResendStatus("sent")
+      setResendCooldown(60)
+    } catch (err: any) {
+      if (!isMounted.current) return
+      setResendStatus("error")
+      setResendError(err?.message || "Could not send. Try again later.")
+      // Short client-side cooldown on error so a 5xx loop can't be hammered
+      // by impatient clicking. Backend's IP rate-limit kicks in eventually
+      // but a 15s pause keeps the UI honest.
+      setResendCooldown(15)
+    }
+  }
+
+  // Tab switch should clear the previous tab's transient feedback — leaving
+  // the "Email not verified" warning visible when the user has switched to
+  // the Register tab is just confusing.
+  const switchTab = (next: "login" | "register") => {
+    setTab(next)
+    setError(null)
+    setUnverifiedEmail(null)
+    setResendStatus("idle")
+    setResendError(null)
+    // Intentionally leave `resendCooldown` alone — it tracks a real backend
+    // throttle window that doesn't reset just because the user changed tabs.
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,6 +91,10 @@ function LoginContent() {
     
     try {
       setUnverifiedEmail(null)
+      // Reset transient resend feedback on every fresh submit — the cooldown
+      // counter itself persists (real backend throttle, not UI sugar).
+      setResendStatus("idle")
+      setResendError(null)
       if (tab === "login") {
         const data = await api.login({ email, password })
         const token = data.access_token
@@ -154,7 +213,7 @@ function LoginContent() {
               {(["login", "register"] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setTab(t)}
+                  onClick={() => switchTab(t)}
                   className={`flex-1 py-2.5 rounded-lg text-sm font-semibold capitalize transition-all ${
                     tab === t
                       ? "bg-brand text-brand-foreground"
@@ -182,11 +241,35 @@ function LoginContent() {
             )}
 
             {unverifiedEmail && (
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm mb-6 animate-in fade-in zoom-in duration-200 space-y-2">
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm mb-6 animate-in fade-in zoom-in duration-200 space-y-3">
                 <p className="font-semibold">Email not verified</p>
                 <p className="text-xs text-amber-500/80">
                   We sent a confirmation link to <strong>{unverifiedEmail}</strong>. Check your inbox (and spam folder).
                 </p>
+
+                {resendStatus === "sent" && (
+                  <p className="text-xs text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2">
+                    ✓ Fresh verification link sent. Give it up to a minute to arrive.
+                  </p>
+                )}
+                {resendStatus === "error" && resendError && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">
+                    {resendError}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendStatus === "sending" || resendCooldown > 0}
+                  className="w-full py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-amber-500 font-semibold text-xs transition-colors"
+                >
+                  {resendStatus === "sending"
+                    ? "Sending..."
+                    : resendCooldown > 0
+                      ? `Resend available in ${resendCooldown}s`
+                      : "Resend verification email"}
+                </button>
               </div>
             )}
 
@@ -330,7 +413,7 @@ function LoginContent() {
           <p className="text-center text-sm text-muted-foreground mt-5">
             {tab === "login" ? "Don't have an account? " : "Already have an account? "}
             <button
-              onClick={() => setTab(tab === "login" ? "register" : "login")}
+              onClick={() => switchTab(tab === "login" ? "register" : "login")}
               className="text-brand hover:text-brand/80 font-medium transition-colors"
             >
               {tab === "login" ? "Register" : "Sign in"}

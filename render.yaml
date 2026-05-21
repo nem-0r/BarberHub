@@ -87,6 +87,12 @@ services:
         value: "587"
       - key: MAIL_FROM_NAME
         value: "BarberHub"
+      # Render Free silently blocks outbound SMTP on port 587. Set this to the
+      # API key from app.brevo.com → SMTP & API → API Keys (NOT the SMTP
+      # credentials) to switch the email transport to HTTPS. Leaving unset
+      # falls back to SMTP — works on a VPS, fails on Render Free.
+      - key: BREVO_API_KEY
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
 
