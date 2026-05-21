@@ -196,7 +196,7 @@ async def health():
     from database import engine
     from app.users.redis import redis_client
 
-    checks = {"database": "ok", "redis": "ok"}
+    checks = {"database": "ok", "redis": "ok", "rag": "ok"}
     healthy = True
 
     async def _check_db():
@@ -220,6 +220,12 @@ async def health():
     except Exception as exc:
         checks["redis"] = f"error: {type(exc).__name__}"
         healthy = False
+
+    # RAG warmup is informational only — slow startup or quota-exhausted Gemini
+    # shouldn't kill the deploy loop. We surface the status so Render Logs
+    # answer "why does /chat 503?" without ssh-ing into anything.
+    if not rag_service.ready:
+        checks["rag"] = "warming"
 
     body = {"status": "ok" if healthy else "degraded", "checks": checks}
     if not healthy:

@@ -1,6 +1,6 @@
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
-from celery.utils.log import get_task_logger
 
 from app.celery_app import celery_app
 from app.users.models import User
@@ -15,7 +15,11 @@ from app.reviews.models import Review
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-logger = get_task_logger(__name__)
+# Stdlib logger — Celery's get_task_logger only routes to handlers when the
+# job runs under a Celery worker. With USE_CELERY=False the same async impls
+# run from APScheduler, where the celery-namespaced logger has no handler and
+# log lines silently disappear. Standard logger inherits FastAPI's root config.
+logger = logging.getLogger(__name__)
 
 async def _check_and_send_reminders():
     """Check for bookings starting in ~2 hours and send reminders (once per booking)."""

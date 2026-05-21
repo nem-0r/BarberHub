@@ -194,11 +194,25 @@ async def login_with_google(
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
 
-    try:
-        payload = google_id_token.verify_oauth2_token(
+    # verify_oauth2_token is synchronous and hits Google's JWKS endpoint — wrap
+    # in to_thread + wait_for so a slow Google response can't pin the worker.
+    import asyncio as _asyncio
+
+    def _verify_blocking() -> dict:
+        return google_id_token.verify_oauth2_token(
             data.id_token,
             google_requests.Request(),
             settings.GOOGLE_CLIENT_ID,
+        )
+
+    try:
+        payload = await _asyncio.wait_for(
+            _asyncio.to_thread(_verify_blocking), timeout=5.0,
+        )
+    except _asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Google identity service is slow to respond — please retry.",
         )
     except ValueError:
         # Covers: bad signature, wrong audience, expired token, malformed JWT.

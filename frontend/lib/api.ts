@@ -476,7 +476,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email })
     })
-    if (!res.ok) throw new Error("Failed to send reset link")
+    if (!res.ok) throw await buildHttpError(res, "Failed to send reset link")
     return await res.json()
   },
 

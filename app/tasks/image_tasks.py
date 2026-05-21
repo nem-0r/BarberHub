@@ -98,82 +98,103 @@ def process_image_upload_impl(
     Pure sync: Pillow + supabase-py + an internal asyncio.new_event_loop() for the
     final DB write. Safe to schedule via either FastAPI BackgroundTasks (threadpool)
     or a Celery worker.
+
+    Wrapped in an outer try/except so ANY failure (Pillow OSError on a truncated
+    file post-verify, asyncpg loop-binding mismatch, Supabase quota, etc.) logs
+    and returns — never raises. dispatch.queue_image_upload also adds a safe-
+    wrap on the BG-task path; the duplication is intentional belt-and-braces
+    so even a direct call from a Celery worker won't crash the worker.
     """
-    if not supabase:
-        logger.error("Supabase client is not initialized. Check URL/KEY.")
-        return
-
-    original_size = len(image_bytes)
-
-    # 1) Size cap — reject before any decode work.
-    if original_size > MAX_UPLOAD_BYTES:
-        logger.warning(
-            "Rejected oversized upload for %s/%s: %d bytes (cap %d)",
-            entity_type, entity_id, original_size, MAX_UPLOAD_BYTES,
-        )
-        return
-
-    # 2) Structural validation without full decode. .verify() detects truncated
-    #    / non-image / malformed data and trips the decompression-bomb guard.
     try:
-        Image.open(io.BytesIO(image_bytes)).verify()
-    except (UnidentifiedImageError, Image.DecompressionBombError, Exception) as exc:
-        logger.warning(
-            "Rejected invalid image for %s/%s: %s", entity_type, entity_id, exc
-        )
-        return
+        if not supabase:
+            logger.error("Supabase client is not initialized. Check URL/KEY.")
+            return
 
-    # 3) verify() leaves the object unusable — reopen for real processing.
-    img = Image.open(io.BytesIO(image_bytes))
-    if img.format not in ALLOWED_FORMATS:
-        logger.warning(
-            "Rejected disallowed format %s for %s/%s",
-            img.format, entity_type, entity_id,
-        )
-        return
-    img.load()  # force decode now, under the MAX_IMAGE_PIXELS guard
+        original_size = len(image_bytes)
 
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
+        # 1) Size cap — reject before any decode work.
+        if original_size > MAX_UPLOAD_BYTES:
+            logger.warning(
+                "Rejected oversized upload for %s/%s: %d bytes (cap %d)",
+                entity_type, entity_id, original_size, MAX_UPLOAD_BYTES,
+            )
+            return
 
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=70, optimize=True)
-    compressed_bytes = buffer.getvalue()
-    compressed_size = len(compressed_bytes)
-
-    logger.info(
-        "Image %s: original=%d bytes, compressed=%d bytes",
-        filename, original_size, compressed_size,
-    )
-
-    # Fixed path per entity so re-uploads overwrite the previous file (no accumulation).
-    if entity_type == "users":
-        storage_path = f"users/{entity_id}/avatar.jpg"
-    elif entity_type == "salons":
-        storage_path = f"salons/{entity_id}/cover.jpg"
-    elif entity_type == "staff":
-        storage_path = f"staff/{entity_id}/avatar.jpg"
-    else:
-        storage_path = f"{entity_type}/{entity_id}/image.jpg"
-
-    try:
-        supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
-            path=storage_path,
-            file=compressed_bytes,
-            file_options={"content-type": "image/jpeg", "upsert": "true"},
-        )
-
-        image_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(storage_path)
-
-        loop = asyncio.new_event_loop()
+        # 2) Structural validation without full decode. .verify() detects truncated
+        #    / non-image / malformed data and trips the decompression-bomb guard.
         try:
-            loop.run_until_complete(_update_db_image_url(entity_type, entity_id, image_url))
-        finally:
-            loop.close()
-        logger.info(f"Image uploaded to: {image_url}")
+            Image.open(io.BytesIO(image_bytes)).verify()
+        except (UnidentifiedImageError, Image.DecompressionBombError, Exception) as exc:
+            logger.warning(
+                "Rejected invalid image for %s/%s: %s", entity_type, entity_id, exc
+            )
+            return
+
+        # 3) verify() leaves the object unusable — reopen for real processing.
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.format not in ALLOWED_FORMATS:
+            logger.warning(
+                "Rejected disallowed format %s for %s/%s",
+                img.format, entity_type, entity_id,
+            )
+            return
+        try:
+            img.load()  # force decode now, under the MAX_IMAGE_PIXELS guard
+        except (OSError, Image.DecompressionBombError) as exc:
+            logger.warning(
+                "Failed to decode image for %s/%s after verify: %s",
+                entity_type, entity_id, exc,
+            )
+            return
+
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=70, optimize=True)
+        compressed_bytes = buffer.getvalue()
+        compressed_size = len(compressed_bytes)
+
+        logger.info(
+            "Image %s: original=%d bytes, compressed=%d bytes",
+            filename, original_size, compressed_size,
+        )
+
+        # Fixed path per entity so re-uploads overwrite the previous file (no accumulation).
+        if entity_type == "users":
+            storage_path = f"users/{entity_id}/avatar.jpg"
+        elif entity_type == "salons":
+            storage_path = f"salons/{entity_id}/cover.jpg"
+        elif entity_type == "staff":
+            storage_path = f"staff/{entity_id}/avatar.jpg"
+        else:
+            storage_path = f"{entity_type}/{entity_id}/image.jpg"
+
+        try:
+            supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+                path=storage_path,
+                file=compressed_bytes,
+                file_options={"content-type": "image/jpeg", "upsert": "true"},
+            )
+
+            image_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(storage_path)
+
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(_update_db_image_url(entity_type, entity_id, image_url))
+            finally:
+                loop.close()
+            logger.info(f"Image uploaded to: {image_url}")
+
+        except Exception:
+            logger.exception("Failed to upload image to Supabase")
+            return
 
     except Exception:
-        logger.exception("Failed to upload image to Supabase")
+        logger.exception(
+            "Unexpected error in process_image_upload_impl for %s/%s",
+            entity_type, entity_id,
+        )
         return
 
 

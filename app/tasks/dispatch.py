@@ -10,8 +10,13 @@ based on ``settings.USE_CELERY``:
                         loop-bound fire-and-forget (e.g. when called from
                         APScheduler's periodic jobs).
 
-Keeping this in one module means we can re-route every queued job through a
-real task system later without touching the routes/services that call them.
+CRITICAL invariant: any callable passed to ``background_tasks.add_task`` is
+WRAPPED in ``_safe_wrap_*`` so a failing background task can never propagate
+into the response path. Without the wrapper, Starlette's
+``Response.__call__`` awaits the task AFTER body is sent — an unhandled
+exception there bubbles up through middleware and our generic exception
+handler converts a successful 201 into a 500 from the client's POV. Every
+``queue_*`` below must use the wrapper.
 """
 from __future__ import annotations
 
@@ -32,6 +37,30 @@ async def _log_failures(coro: Awaitable[Any]) -> None:
         await coro
     except Exception:
         logger.exception("Background task failed")
+
+
+def _safe_wrap_async(
+    coro_factory: Callable[[], Awaitable[Any]], *, log_name: str,
+) -> Callable[[], Awaitable[None]]:
+    """Turn an async impl into a no-arg coroutine that never raises."""
+    async def _runner() -> None:
+        try:
+            await coro_factory()
+        except Exception:
+            logger.exception("Background task '%s' failed", log_name)
+    return _runner
+
+
+def _safe_wrap_sync(
+    fn: Callable[..., Any], *args: Any, log_name: str,
+) -> Callable[[], None]:
+    """Turn a sync impl + args into a no-arg callable that never raises."""
+    def _runner() -> None:
+        try:
+            fn(*args)
+        except Exception:
+            logger.exception("Background task '%s' failed", log_name)
+    return _runner
 
 
 def _fire_and_forget_async(coro_factory: Callable[[], Awaitable[Any]]) -> None:
@@ -62,10 +91,11 @@ def queue_verification_email(
         send_verification_email_task.delay(email, token)
         return
     from app.tasks.email_tasks import send_verification_email_impl
+    factory = lambda: send_verification_email_impl(email, token)
     if background_tasks is not None:
-        background_tasks.add_task(send_verification_email_impl, email, token)
+        background_tasks.add_task(_safe_wrap_async(factory, log_name="verification_email"))
     else:
-        _fire_and_forget_async(lambda: send_verification_email_impl(email, token))
+        _fire_and_forget_async(factory)
 
 
 def queue_password_reset_email(
@@ -76,10 +106,11 @@ def queue_password_reset_email(
         send_password_reset_email_task.delay(email, token)
         return
     from app.tasks.email_tasks import send_password_reset_email_impl
+    factory = lambda: send_password_reset_email_impl(email, token)
     if background_tasks is not None:
-        background_tasks.add_task(send_password_reset_email_impl, email, token)
+        background_tasks.add_task(_safe_wrap_async(factory, log_name="password_reset_email"))
     else:
-        _fire_and_forget_async(lambda: send_password_reset_email_impl(email, token))
+        _fire_and_forget_async(factory)
 
 
 def queue_booking_confirmation(
@@ -100,12 +131,14 @@ def queue_booking_confirmation(
         )
         return
     from app.tasks.email_tasks import send_booking_confirmation_impl
-    args = (client_email, staff_email, client_name,
-            service_name, time_str, salon_name)
+    factory = lambda: send_booking_confirmation_impl(
+        client_email, staff_email, client_name,
+        service_name, time_str, salon_name,
+    )
     if background_tasks is not None:
-        background_tasks.add_task(send_booking_confirmation_impl, *args)
+        background_tasks.add_task(_safe_wrap_async(factory, log_name="booking_confirmation"))
     else:
-        _fire_and_forget_async(lambda: send_booking_confirmation_impl(*args))
+        _fire_and_forget_async(factory)
 
 
 def queue_booking_reminder(
@@ -116,10 +149,11 @@ def queue_booking_reminder(
         send_booking_reminder_task.delay(email, time_str)
         return
     from app.tasks.email_tasks import send_booking_reminder_impl
+    factory = lambda: send_booking_reminder_impl(email, time_str)
     if background_tasks is not None:
-        background_tasks.add_task(send_booking_reminder_impl, email, time_str)
+        background_tasks.add_task(_safe_wrap_async(factory, log_name="booking_reminder"))
     else:
-        _fire_and_forget_async(lambda: send_booking_reminder_impl(email, time_str))
+        _fire_and_forget_async(factory)
 
 
 def queue_booking_cancelled(
@@ -138,11 +172,13 @@ def queue_booking_cancelled(
         )
         return
     from app.tasks.email_tasks import send_booking_cancelled_impl
-    args = (client_email, service_name, time_str, salon_name, cancelled_by)
+    factory = lambda: send_booking_cancelled_impl(
+        client_email, service_name, time_str, salon_name, cancelled_by,
+    )
     if background_tasks is not None:
-        background_tasks.add_task(send_booking_cancelled_impl, *args)
+        background_tasks.add_task(_safe_wrap_async(factory, log_name="booking_cancelled"))
     else:
-        _fire_and_forget_async(lambda: send_booking_cancelled_impl(*args))
+        _fire_and_forget_async(factory)
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +201,10 @@ def queue_image_upload(
     args = (entity_type, entity_id, image_bytes, filename)
     if background_tasks is not None:
         # add_task on a sync callable goes to the threadpool — Pillow decode
-        # won't stall the event loop.
-        background_tasks.add_task(process_image_upload_impl, *args)
+        # won't stall the event loop. Safe-wrap so a malformed image / Supabase
+        # outage can't 500 the response.
+        background_tasks.add_task(
+            _safe_wrap_sync(process_image_upload_impl, *args, log_name="image_upload"),
+        )
     else:
         _fire_and_forget_sync(process_image_upload_impl, *args)
