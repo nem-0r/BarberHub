@@ -42,14 +42,22 @@ export default function ProfilePage() {
           const staff = await api.getStaffByUserId(userData.id)
           setStaffRecord(staff)
         }
-      } catch (err) {
+      } catch (err: any) {
+        // 401 from /users/me means token is revoked / user deleted — push to
+        // login instead of silently showing an empty profile form.
+        if (err?.code === "UNAUTHORIZED" || err?.status === 401) {
+          localStorage.removeItem("token")
+          localStorage.removeItem("user")
+          router.replace("/login")
+          return
+        }
         console.error(err)
       } finally {
         setLoading(false)
       }
     }
     loadProfile()
-  }, [])
+  }, [router])
 
   const handleSave = async () => {
     setSaving(true)

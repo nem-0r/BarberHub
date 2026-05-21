@@ -138,21 +138,20 @@ export default function MLPredictorPage() {
     setError(null)
     setAnimatedConf(0)
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-      const res = await fetch(`${apiBase}/ml/evaluate-barber`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // Route through `api.evaluateBarber` so the Bearer token + auto-refresh
+      // path applies — `/ml/evaluate-barber` requires `get_current_user`.
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
+      if (!token) {
+        throw new Error("Sign in to use the ML grader.")
+      }
+      const data: PredictionResult = await api.evaluateBarber(
+        {
           years_experience_cat: experience,
           skills:               selectedSkills,
           education_count:      effectiveEducation, // recency-adjusted
-        }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body?.detail || `Server error ${res.status}`)
-      }
-      const data: PredictionResult = await res.json()
+        },
+        token,
+      )
       setResult(data)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Prediction failed. Is the API server running?")

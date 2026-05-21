@@ -60,7 +60,15 @@ async def get_current_user(
 
     user = await get_user_by_id(user_uuid, session)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # Token is well-formed but the user it refers to no longer exists
+        # (deleted account, hand-rolled JWT for a fake id, etc). 401 — NOT
+        # 404 — is the right status: the frontend's apiFetch retries 401 via
+        # /users/refresh, but treats 404 as a missing resource and gives up,
+        # leaving the user on a blank page with no auth recovery path.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token refers to a user that no longer exists",
+        )
 
     await cache_user(user)
     return user

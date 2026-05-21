@@ -480,6 +480,30 @@ export const api = {
     return await res.json()
   },
 
+  async evaluateBarber(
+    payload: {
+      years_experience_cat: string
+      skills: string[]
+      education_count: number
+    },
+    token: string,
+  ) {
+    // Backend `/ml/evaluate-barber` is auth-gated (get_current_user). Route
+    // through apiFetch so the Bearer token + refresh-cookie retry path apply
+    // — a raw fetch() here was the cause of every "evaluate" click 401ing.
+    const res = await apiFetch(
+      "/ml/evaluate-barber",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+      { auth: true, token },
+    )
+    if (!res.ok) throw await buildHttpError(res, "Prediction failed")
+    return await res.json()
+  },
+
   async resendVerification(email: string) {
     const res = await fetch(`${API_BASE_URL}/users/resend-verification`, {
       method: "POST",
