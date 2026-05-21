@@ -67,14 +67,16 @@ export default function PartnerRegisterPage() {
     setError(null)
 
     try {
-      // 1. Register user only (no login or salon creation yet)
-      // Role is always "client" on registration — backend upgrades to "owner"
-      // automatically when the salon is created after email verification.
+      // 1. Register user with role="owner" so they can hit the
+      // owner-protected create-salon endpoint after email verification.
+      // Backend UserCreate validator only accepts "client" or "owner" —
+      // "admin" is server-side only and can't be set from the public form.
       await api.register({
         email: formData.email,
         password: formData.password,
         full_name: formData.ownerName,
         phone: formData.phone,
+        role: "owner",
       })
 
       // 2. Save salon data to localStorage to create AFTER verification
@@ -404,9 +406,12 @@ export default function PartnerRegisterPage() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-foreground mb-2">
-                          Email Address
+                        <label className="block text-sm font-medium text-foreground mb-1">
+                          Your Email (used to sign in)
                         </label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          This is the personal email you'll use to log into the partner dashboard — not the public contact email for your salon.
+                        </p>
                         <div className="relative">
                           <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                           <input
@@ -414,7 +419,7 @@ export default function PartnerRegisterPage() {
                             name="email"
                             value={formData.email}
                             onChange={handleChange}
-                            placeholder="you@yoursalon.com"
+                            placeholder="you@example.com"
                             className="w-full pl-12 pr-4 py-3 bg-surface-elevated border border-border-solid rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                             required
                           />

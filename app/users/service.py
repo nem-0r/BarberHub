@@ -98,7 +98,11 @@ async def create_user(data: UserCreate, session: AsyncSession) -> User:
     user_data = data.model_dump()
     user_data["email"] = user_data["email"].strip().lower()  # normalize for case-insensitive lookups
     user_data["password_hash"] = hash_password(user_data.pop("password"))
-    user_data["role"] = UserRole.client  # Always force client role on registration
+    # Trust data.role here — the UserCreate schema validator (`public_roles_only`)
+    # already constrained it to {client, owner}; admin is reachable only via
+    # server-side updates. The previous hardcoded UserRole.client overrode the
+    # partner-register flow, leaving every "Create salon" attempt stuck on the
+    # owner_admin_only guard with no way out.
     user = User(**user_data)
     session.add(user)
     await session.commit()

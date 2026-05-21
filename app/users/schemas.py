@@ -11,6 +11,11 @@ class UserCreate(SQLModel):
     password: str
     full_name: str
     phone: str
+    # New accounts may self-select between "client" (book appointments) and
+    # "owner" (own a salon and accept bookings). `admin` is a server-only
+    # privileged role and is rejected by the validator below. Default keeps
+    # the existing /users/ POST behaviour for normal client signup unchanged.
+    role: UserRole = UserRole.client
 
     @field_validator("password")
     @classmethod
@@ -19,6 +24,15 @@ class UserCreate(SQLModel):
             raise ValueError("Password must be at least 8 characters")
         if len(v) > 128:
             raise ValueError("Password must be at most 128 characters")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def public_roles_only(cls, v: UserRole) -> UserRole:
+        # client / owner are public-facing self-service roles.
+        # admin and any future privileged role MUST be promoted server-side.
+        if v not in (UserRole.client, UserRole.owner):
+            raise ValueError("role must be either 'client' or 'owner'")
         return v
 
 
