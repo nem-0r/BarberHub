@@ -6,7 +6,7 @@ from app.users.models import User, UserRole
 from app.users.schemas import UserCreate, UserUpdate
 from app.users.auth import hash_password
 from app.users.redis import invalidate_user_cache
-from app.exceptions import UserNotFoundError
+from app.exceptions import UserNotFoundError, EmailAlreadyExistsError
 
 
 async def get_all_users(session: AsyncSession, skip: int = 0, limit: int = 50) -> List[User]:
@@ -24,6 +24,14 @@ async def get_user_by_email(email: str, session: AsyncSession) -> Optional[User]
 
 
 async def create_user(data: UserCreate, session: AsyncSession) -> User:
+    # Check BEFORE INSERT — otherwise a duplicate email surfaces as a raw
+    # asyncpg IntegrityError which the unhandled-exception path turns into a
+    # 500 with no useful message for the frontend. Covers the case where the
+    # user already exists from a prior Google OAuth sign-in.
+    existing = await get_user_by_email(data.email, session)
+    if existing:
+        raise EmailAlreadyExistsError()
+
     user_data = data.model_dump()
     user_data["password_hash"] = hash_password(user_data.pop("password"))
     user_data["role"] = UserRole.client  # Always force client role on registration

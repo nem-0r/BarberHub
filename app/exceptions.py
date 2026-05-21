@@ -24,3 +24,14 @@ class BookingConflictError(BarbershopException):
 class AvailabilityError(BarbershopException):
     def __init__(self, message: str = "Staff is not available at the requested time"):
         super().__init__(message, status.HTTP_400_BAD_REQUEST)
+
+
+class EmailAlreadyExistsError(BarbershopException):
+    def __init__(
+        self,
+        message: str = (
+            "This email is already registered. Try signing in instead, "
+            "or use 'Sign in with Google' if the account was created via Google."
+        ),
+    ):
+        super().__init__(message, status.HTTP_409_CONFLICT)
