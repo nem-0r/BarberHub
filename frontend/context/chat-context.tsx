@@ -12,6 +12,7 @@ import {
 } from "react"
 
 export type Message = {
+  id: string
   role: "user" | "bot"
   text: string
   sources?: string[]
@@ -20,7 +21,8 @@ export type Message = {
 
 interface ChatContextValue {
   messages: Message[]
-  addMessage: (msg: Message) => void
+  addMessage: (msg: Omit<Message, "id"> & { id?: string }) => void
+  updateLastBotMessage: (patch: (msg: Message) => Message) => void
   open: boolean
   setOpen: Dispatch<SetStateAction<boolean>>
   position: { x: number; y: number } | null
@@ -32,6 +34,7 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([
     {
+      id: "init-0",
       role: "bot",
       text: "Привет! Я помощник BarberHub. Спросите меня о правилах платформы, стрижках или ценах в Алматы.",
     },
@@ -66,12 +69,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const addMessage = useCallback((msg: Message) => {
-    setMessages((prev) => [...prev, msg])
+  const addMessage = useCallback((msg: Omit<Message, "id"> & { id?: string }) => {
+    const withId: Message = { id: msg.id ?? crypto.randomUUID(), ...msg }
+    setMessages((prev) => [...prev, withId])
+  }, [])
+
+  // Patch the most recent bot message in place. Used by the streaming reader to
+  // append chunks and attach sources without re-rendering the whole list.
+  const updateLastBotMessage = useCallback((patch: (msg: Message) => Message) => {
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].role === "bot") {
+          const next = prev.slice()
+          next[i] = patch(prev[i])
+          return next
+        }
+      }
+      return prev
+    })
   }, [])
 
   return (
-    <ChatContext.Provider value={{ messages, addMessage, open, setOpen, position, setPosition }}>
+    <ChatContext.Provider value={{ messages, addMessage, updateLastBotMessage, open, setOpen, position, setPosition }}>
       {children}
     </ChatContext.Provider>
   )

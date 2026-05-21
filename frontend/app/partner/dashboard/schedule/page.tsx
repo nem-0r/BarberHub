@@ -1,12 +1,21 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { useEffect, useState, Suspense } from "react"
+import { useEffect, useMemo, useState, Suspense } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import {
+  queryKeys,
+  useSalonByOwnerQuery,
+  useStaffByUserQuery,
+  useSalonByIdQuery,
+  useSchedulesByStaffQuery,
+} from "@/lib/queries"
 import { Loader2, Calendar, Clock, ChevronRight, Save, ShieldAlert, User } from "lucide-react"
+import { toast } from "sonner"
 import { PartnerSidebar } from "@/components/partner/partner-sidebar"
 import Image from "next/image"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 
 interface Schedule {
   id?: string
@@ -22,88 +31,106 @@ const DAYS = [
 
 function ScheduleContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const queryClient = useQueryClient()
   const initialStaffId = searchParams.get("staffId")
 
-  const [staff, setStaff] = useState<any[]>([])
-  const [selectedStaff, setSelectedStaff] = useState<any>(null)
-  const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [salon, setSalon] = useState<any>(null)
-  const [isStaff, setIsStaff] = useState(false)
-
+  // ── Auth bootstrap (cached user from localStorage) ──────────────────────────
+  const [user, setUser] = useState<any>(null)
+  const [authReady, setAuthReady] = useState(false)
   useEffect(() => {
-    async function init() {
-      try {
-        const userStr = localStorage.getItem("user")
-        if (!userStr) {
-          window.location.href = "/login"
-          return
-        }
-        const user = JSON.parse(userStr)
-
-        if (user.role === "staff") {
-          setIsStaff(true)
-          // Staff: load their own profile → salon
-          const myProfile = await api.getStaffByUserId(user.id)
-          if (myProfile) {
-            const salonData = await api.getSalonById(myProfile.salonId)
-            setSalon(salonData)
-            setStaff([myProfile])
-            setSelectedStaff(myProfile)
-          }
-        } else {
-          // Owner / admin: manage the whole team
-          const salonData = await api.getSalonByOwnerId(user.id)
-          setSalon(salonData)
-
-          const staffData = await api.getBarbersBySalonId(salonData.id)
-          setStaff(staffData)
-
-          if (initialStaffId) {
-            const s = staffData.find((b: any) => b.id === initialStaffId)
-            if (s) setSelectedStaff(s)
-          } else if (staffData.length > 0) {
-            setSelectedStaff(staffData[0])
-          }
-        }
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
+    const userStr = localStorage.getItem("user")
+    if (!userStr) {
+      router.replace("/login")
+      return
     }
-    init()
-  }, [initialStaffId])
-
-  useEffect(() => {
-    if (selectedStaff) {
-      loadSchedules(selectedStaff.id)
-    }
-  }, [selectedStaff])
-
-  async function loadSchedules(staffId: string) {
-    setLoading(true)
     try {
-      const data = await api.getSchedulesByStaffId(staffId)
-      
-      // Initialize 7 days if not present
-      const fullSchedules = DAYS.map((_, index) => {
-        const existing = data.find((s: any) => s.day_of_week === index)
-        return existing || {
-          day_of_week: index,
-          start_time: "09:00",
-          end_time: "18:00",
-          is_day_off: index >= 5 // Sat-Sun off by default
-        }
-      })
-      setSchedules(fullSchedules)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
+      setUser(JSON.parse(userStr))
+    } catch {
+      router.replace("/login")
+      return
     }
-  }
+    setAuthReady(true)
+  }, [router])
+
+  const isStaff = user?.role === "staff"
+  const isOwner = user?.role === "owner" || user?.role === "admin"
+
+  // ── Salon + staff list (cache-shared with sidebar/dashboard) ────────────────
+  const ownerSalonQuery = useSalonByOwnerQuery(isOwner ? user?.id : null)
+  const staffProfileQuery = useStaffByUserQuery(isStaff ? user?.id : null)
+  const staffSalonQuery = useSalonByIdQuery(isStaff ? staffProfileQuery.data?.salonId : null)
+
+  const salon = isOwner ? ownerSalonQuery.data : staffSalonQuery.data
+  const salonId: string | undefined = salon?.id
+
+  // Owner needs the full team; staff only sees themselves.
+  const teamQuery = useQuery<any[]>({
+    queryKey: salonId ? ["staff", "salon", salonId] : ["staff", "salon", "__pending__"],
+    queryFn: () => api.getBarbersBySalonId(salonId!),
+    enabled: isOwner && !!salonId,
+  })
+
+  const staffList: any[] = isStaff
+    ? (staffProfileQuery.data ? [staffProfileQuery.data] : [])
+    : (teamQuery.data ?? [])
+
+  // ── Selected staff: defaults to self for staff, first/url-param for owners ──
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
+  useEffect(() => {
+    if (selectedStaffId) return
+    if (isStaff && staffProfileQuery.data) {
+      setSelectedStaffId(staffProfileQuery.data.id)
+      return
+    }
+    if (isOwner && staffList.length > 0) {
+      const initial =
+        (initialStaffId && staffList.find(s => s.id === initialStaffId)?.id) ||
+        staffList[0].id
+      setSelectedStaffId(initial)
+    }
+  }, [isStaff, isOwner, staffProfileQuery.data, staffList, initialStaffId, selectedStaffId])
+
+  const selectedStaff = useMemo(
+    () => staffList.find(s => s.id === selectedStaffId) ?? null,
+    [staffList, selectedStaffId],
+  )
+
+  // ── Schedules for the selected staff ────────────────────────────────────────
+  const schedulesQuery = useSchedulesByStaffQuery(selectedStaffId)
+
+  // Local editing state derived from server data — only resets when the
+  // underlying staff or server payload changes (no flicker on re-render).
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  useEffect(() => {
+    if (!schedulesQuery.data || !selectedStaffId) return
+    const fullSchedules = DAYS.map((_, index) => {
+      const existing = schedulesQuery.data!.find((s: any) => s.day_of_week === index)
+      return existing || {
+        day_of_week: index,
+        start_time: "09:00",
+        end_time: "18:00",
+        is_day_off: index >= 5,
+      }
+    })
+    setSchedules(fullSchedules)
+  }, [schedulesQuery.data, selectedStaffId])
+
+  const [saving, setSaving] = useState(false)
+
+  // First-mount loading — block UI until we have salon AND a selected staff.
+  // Subsequent staff/schedule swaps show data immediately (cache-first) with
+  // a small background spinner via `refreshing`.
+  const initialLoading =
+    !authReady ||
+    (isOwner && ownerSalonQuery.isLoading && !salon) ||
+    (isStaff && (staffProfileQuery.isLoading || staffSalonQuery.isLoading) && !salon) ||
+    (isOwner && teamQuery.isLoading && !teamQuery.data) ||
+    (!!salon && !selectedStaffId && staffList.length > 0)
+
+  const refreshing =
+    schedulesQuery.isFetching ||
+    (isOwner && teamQuery.isFetching && !!teamQuery.data)
 
   const handleUpdateSchedule = (index: number, updates: Partial<Schedule>) => {
     setSchedules(prev => prev.map((s, i) => i === index ? { ...s, ...updates } : s))
@@ -133,16 +160,16 @@ function ScheduleContent() {
           }, token)
         }
       }
-      alert("Schedules updated successfully!")
-      loadSchedules(selectedStaff.id)
+      toast.success("Schedules updated successfully!")
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedulesByStaff(selectedStaff.id) })
     } catch (err: any) {
-      alert(err.message || "Failed to save schedules")
+      toast.error(err.message || "Failed to save schedules")
     } finally {
       setSaving(false)
     }
   }
 
-  if (loading && !salon) {
+  if (initialLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
         <Loader2 className="w-12 h-12 text-brand animate-spin mb-4" />
@@ -155,11 +182,12 @@ function ScheduleContent() {
     <div className="min-h-screen bg-background">
       <PartnerSidebar />
 
-      <main className="ml-64 p-8">
+      <main className="lg:ml-64 p-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="font-display font-bold text-3xl text-foreground">
+            <h1 className="font-display font-bold text-3xl text-foreground flex items-center gap-3">
               {isStaff ? "My Schedule" : "Working Schedules"}
+              {refreshing && <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />}
             </h1>
             <p className="text-muted-foreground mt-1">
               {isStaff
@@ -185,13 +213,13 @@ function ScheduleContent() {
                 Team Members
               </h2>
               <div className="space-y-1">
-                {staff.map((member) => (
+                {staffList.map((member) => (
                   <button
                     key={member.id}
-                    onClick={() => setSelectedStaff(member)}
+                    onClick={() => setSelectedStaffId(member.id)}
                     className={cn(
                       "w-full flex items-center gap-3 p-3 rounded-xl transition-all",
-                      selectedStaff?.id === member.id
+                      selectedStaffId === member.id
                         ? "bg-brand/10 border border-brand/20 text-foreground"
                         : "hover:bg-surface-elevated text-muted-foreground hover:text-foreground"
                     )}
@@ -208,7 +236,7 @@ function ScheduleContent() {
                       <p className="font-medium text-sm line-clamp-1">{member.name}</p>
                       <p className="text-xs opacity-70">{member.role}</p>
                     </div>
-                    {selectedStaff?.id === member.id && <ChevronRight className="w-4 h-4 text-brand" />}
+                    {selectedStaffId === member.id && <ChevronRight className="w-4 h-4 text-brand" />}
                   </button>
                 ))}
               </div>

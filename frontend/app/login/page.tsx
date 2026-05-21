@@ -1,14 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useState, Suspense } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Scissors, ArrowRight, Chrome, Phone } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Eye, EyeOff, Scissors, ArrowRight, Phone } from "lucide-react"
+import { GoogleLogin, type CredentialResponse } from "@react-oauth/google"
 import { Navbar } from "@/components/barberhub/navbar"
 import { api } from "@/lib/api"
 
-export default function LoginPage() {
+const GOOGLE_OAUTH_ENABLED = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+
+/** Allow only same-origin redirects: must start with "/" but NOT "//" */
+function isSafeRedirect(url: string): boolean {
+  return typeof url === "string" && url.startsWith("/") && !url.startsWith("//")
+}
+
+function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<"login" | "register">("login")
   const [showPass, setShowPass] = useState(false)
   const [email, setEmail] = useState("")
@@ -36,21 +45,20 @@ export default function LoginPage() {
         const user = await api.getMe(token)
         localStorage.setItem("user", JSON.stringify(user))
 
-        // Redirect based on role
+        // Redirect based on role, honouring ?redirect= if present and safe.
         // If pending_salon exists in sessionStorage, the OnboardingWizard will
         // read and pre-fill it automatically when the dashboard loads.
-        if (user.role === 'owner' || user.role === 'admin') {
-          router.push("/partner/dashboard")
-        } else {
-          router.push("/profile")
-        }
+        const redirectParam = searchParams.get("redirect") ?? ""
+        const fallback = (user.role === 'owner' || user.role === 'admin')
+          ? "/partner/dashboard"
+          : "/profile"
+        router.push(isSafeRedirect(redirectParam) ? redirectParam : fallback)
       } else {
         await api.register({
           email,
           password,
           full_name: name,
           phone: phone,
-          role: "client"
         })
         // Do NOT auto-login — user must verify email first.
         // Show the "check your inbox" confirmation screen.
@@ -63,6 +71,31 @@ export default function LoginPage() {
       } else {
         setError(err.message)
       }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGoogleSuccess = async (resp: CredentialResponse) => {
+    if (!resp.credential) {
+      setError("Google sign-in returned no credential")
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.loginWithGoogle(resp.credential)
+      const token = data.access_token
+      localStorage.setItem("token", token)
+      const user = await api.getMe(token)
+      localStorage.setItem("user", JSON.stringify(user))
+      const redirectParam = searchParams.get("redirect") ?? ""
+      const fallback = (user.role === "owner" || user.role === "admin")
+        ? "/partner/dashboard"
+        : "/profile"
+      router.push(isSafeRedirect(redirectParam) ? redirectParam : fallback)
+    } catch (err: any) {
+      setError(err.message || "Google sign-in failed")
     } finally {
       setLoading(false)
     }
@@ -158,16 +191,27 @@ export default function LoginPage() {
             )}
 
             {/* Social Sign In */}
-            <button className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-border-solid bg-surface hover:bg-surface-elevated transition-colors text-sm font-medium text-foreground mb-5">
-              <Chrome className="w-4 h-4" />
-              Continue with Google
-            </button>
+            {GOOGLE_OAUTH_ENABLED ? (
+              <>
+                <div className="flex justify-center mb-5">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => setError("Google sign-in failed")}
+                    theme="filled_black"
+                    shape="pill"
+                    text={tab === "login" ? "signin_with" : "signup_with"}
+                    locale="en"
+                    width="320"
+                  />
+                </div>
 
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex-1 h-px bg-border-solid" />
-              <span className="text-xs text-muted-foreground">or</span>
-              <div className="flex-1 h-px bg-border-solid" />
-            </div>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="flex-1 h-px bg-border-solid" />
+                  <span className="text-xs text-muted-foreground">or</span>
+                  <div className="flex-1 h-px bg-border-solid" />
+                </div>
+              </>
+            ) : null}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -295,5 +339,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   )
 }

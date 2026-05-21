@@ -2,8 +2,10 @@
 
 import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
-import { Loader2, Plus, Clock, Edit, Trash2, X, DollarSign } from "lucide-react"
+import { Loader2, Plus, Clock, Edit, Trash2, X } from "lucide-react"
+import { toast } from "sonner"
 import { PartnerSidebar } from "@/components/partner/partner-sidebar"
 
 interface ServiceItem {
@@ -67,6 +69,7 @@ const initialServices: ServiceItem[] = [
 const categories = ["All", "Haircuts", "Beard", "Shaves", "Packages"]
 
 export default function ServicesPage() {
+  const router = useRouter()
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -88,13 +91,13 @@ export default function ServicesPage() {
       try {
         const userStr = localStorage.getItem("user")
         if (!userStr) {
-          window.location.href = "/login"
+          router.replace("/login")
           return
         }
         const user = JSON.parse(userStr)
         // Only owner / admin can manage the salon's service catalogue
         if (user.role !== "owner" && user.role !== "admin") {
-          window.location.href = "/partner/dashboard"
+          router.replace("/partner/dashboard")
           return
         }
         const salonData = await api.getSalonByOwnerId(user.id)
@@ -169,7 +172,7 @@ export default function ServicesPage() {
       setServices(data)
       setShowModal(false)
     } catch (err: any) {
-      alert(err.message || "Operation failed")
+      toast.error(err.message || "Operation failed")
     } finally {
       setLoading(false)
     }
@@ -177,15 +180,15 @@ export default function ServicesPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this service?")) return
-    
+
     try {
       const token = localStorage.getItem("token")
       if (!token) throw new Error("No token found")
-      
+
       await api.deleteService(id, token)
       setServices(services.filter((s) => s.id !== id))
     } catch (err: any) {
-      alert("Failed to delete service")
+      toast.error(err.message || "Failed to delete service")
     }
   }
 
@@ -200,7 +203,7 @@ export default function ServicesPage() {
         s.id === service.id ? { ...s, isActive: !s.isActive } : s
       ))
     } catch (err: any) {
-      alert("Failed to update status")
+      toast.error("Failed to update status")
     }
   }
 
@@ -217,7 +220,7 @@ export default function ServicesPage() {
     <div className="min-h-screen bg-background">
       <PartnerSidebar />
 
-      <main className="ml-64 p-8">
+      <main className="lg:ml-64 p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -254,11 +257,10 @@ export default function ServicesPage() {
           <div className="bento-card">
             <p className="text-sm text-muted-foreground mb-1">Avg. Price</p>
             <p className="text-3xl font-bold text-gold">
-              $
               {services.length > 0
                 ? Math.round(services.reduce((acc, s) => acc + s.price, 0) / services.length)
                 : 0
-              }
+              } ₸
             </p>
           </div>
         </div>
@@ -335,7 +337,7 @@ export default function ServicesPage() {
                   </td>
                   <td className="p-4">
                     <span className="font-bold text-brand text-lg">
-                      ${service.price}
+                      {service.price} ₸
                     </span>
                   </td>
                   <td className="p-4">
@@ -429,19 +431,19 @@ export default function ServicesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
-                    Price ($)
+                    Price (₸)
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">₸</span>
                     <input
                       type="number"
                       value={formData.price}
                       onChange={(e) =>
                         setFormData({ ...formData, price: e.target.value })
                       }
-                      placeholder="45"
+                      placeholder="5000"
                       min="0"
-                      className="w-full pl-12 pr-4 py-3 bg-surface-elevated border border-border-solid rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+                      className="w-full pl-10 pr-4 py-3 bg-surface-elevated border border-border-solid rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
                       required
                     />
                   </div>

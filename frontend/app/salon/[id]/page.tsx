@@ -68,14 +68,17 @@ export default function SalonDetailPage({
     notFound()
   }
 
+  // Clients must never see/book disabled services.
+  const activeServices = services.filter((s: any) => s.isActive !== false)
+
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: "services", label: "Services", count: services.length },
+    { id: "services", label: "Services", count: activeServices.length },
     { id: "barbers", label: "Barbers", count: barbers.length },
     { id: "reviews", label: "Reviews", count: reviews.length },
   ]
 
   // Group services by category
-  const servicesByCategory = services.reduce(
+  const servicesByCategory = activeServices.reduce(
     (acc, service) => {
       if (!acc[service.category]) {
         acc[service.category] = []
@@ -175,7 +178,7 @@ export default function SalonDetailPage({
 
               {/* Tags */}
               <div className="flex flex-wrap gap-2 mt-4">
-                {salon.tags.map((tag) => (
+                {salon.tags.map((tag: string) => (
                   <span
                     key={tag}
                     className="px-3 py-1 rounded-lg bg-surface-elevated text-sm text-muted-foreground"
@@ -231,13 +234,13 @@ export default function SalonDetailPage({
         {/* Services Tab */}
         {activeTab === "services" && (
           <div className="space-y-8">
-            {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+            {(Object.entries(servicesByCategory) as [string, any[]][]).map(([category, categoryServices]) => (
               <div key={category}>
                 <h3 className="font-display font-bold text-lg text-foreground mb-4">
                   {category}
                 </h3>
                 <div className="space-y-3">
-                  {categoryServices.map((service) => (
+                  {categoryServices.map((service: any) => (
                     <div
                       key={service.id}
                       className="flex items-center justify-between p-4 bg-surface rounded-xl border border-border-solid hover:border-brand/30 transition-colors"
@@ -255,7 +258,7 @@ export default function SalonDetailPage({
                       </div>
                       <div className="flex items-center gap-4">
                         <span className="font-bold text-lg text-brand">
-                          ${service.price}
+                          {service.price} ₸
                         </span>
                         <Link
                           href={`/book/${salon.id}?service=${service.id}`}
@@ -303,7 +306,7 @@ export default function SalonDetailPage({
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {barber.specialties.map((spec) => (
+                    {barber.specialties.map((spec: string) => (
                       <span
                         key={spec}
                         className="px-2 py-0.5 rounded bg-surface-elevated text-xs text-muted-foreground"

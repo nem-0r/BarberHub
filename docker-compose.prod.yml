@@ -1,0 +1,180 @@
+# PRODUCTION compose. Your dev workflow is UNCHANGED — keep using
+# `docker compose up` (which reads docker-compose.yml).
+#
+# Deploy with:  docker compose -f docker-compose.prod.yml up -d --build
+#
+# Differences vs dev:
+#   - no source bind mounts (image is immutable)
+#   - gunicorn + preload instead of single uvicorn
+#   - Celery split into image / email workers
+#   - Flower behind basic auth
+#   - NO redis-commander, NO elasticsearch (logging degrades to stdout)
+#   - frontend built (Dockerfile.prod) and served via `node server.js`
+#
+# Secrets: prefer real env vars / your platform's secret manager over a
+# committed .env. The `env_file` line is a convenience for a self-hosted VPS.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: barbershop-redis
+    restart: always
+
+  app:
+    build: .
+    image: barbershop-backend
+    container_name: barbershop-api
+    command: bash ./entrypoint.prod.sh
+    # Bound to loopback only: public traffic enters via Caddy (TLS).
+    # Inside the compose network other services still reach it at app:8000.
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - SENTENCE_TRANSFORMERS_HOME=/model_cache
+      - WEB_CONCURRENCY=4
+    depends_on:
+      - redis
+    volumes:
+      - chroma_data:/app/rag_core/chroma_data
+      - model_cache:/model_cache
+    # /health is a real readiness probe (checks Postgres + Redis, 503 if down).
+    # start_period covers gunicorn --preload loading the 1.5GB BGE-M3 model.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 150s
+    restart: always
+
+  worker-images:
+    image: barbershop-backend
+    container_name: barbershop-worker-images
+    command: python3 -m celery -A app.celery_app:celery_app worker --loglevel=info -Q image_queue --concurrency=2
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    # Wait until `app` is HEALTHY (= migrations applied + gunicorn bound) before
+    # starting workers. Otherwise beat may dispatch tasks while Alembic is still
+    # running and the schema isn't ready yet → cryptic IntegrityErrors on boot.
+    depends_on:
+      redis:
+        condition: service_started
+      app:
+        condition: service_healthy
+    volumes:
+      - model_cache:/model_cache
+    restart: always
+
+  worker-email:
+    image: barbershop-backend
+    container_name: barbershop-worker-email
+    command: python3 -m celery -A app.celery_app:celery_app worker --loglevel=info -Q email_queue,celery --concurrency=4
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_started
+      app:
+        condition: service_healthy
+    restart: always
+
+  beat:
+    image: barbershop-backend
+    container_name: barbershop-beat
+    command: python3 -m celery -A app.celery_app:celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_started
+      app:
+        condition: service_healthy
+    restart: always
+
+  flower:
+    image: barbershop-backend
+    container_name: barbershop-flower
+    # Basic auth REQUIRED. No fallback default — Flower exposes every task's
+    # arguments (emails, IDs) and supports task retry/revoke, so a leaked
+    # default credential equals admin over your queues. Set FLOWER_BASIC_AUTH
+    # in .env to `user:strong-password`; missing → container fails to start.
+    command: >
+      python3 -m celery -A app.celery_app:celery_app flower --port=5555
+      --basic_auth=${FLOWER_BASIC_AUTH:?FLOWER_BASIC_AUTH must be set in .env}
+    # Loopback only — reach it via SSH tunnel, not the public internet.
+    ports:
+      - "127.0.0.1:5555:5555"
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_started
+      app:
+        condition: service_healthy
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      # NEXT_PUBLIC_* MUST be passed as build args — Next.js inlines them into
+      # the static JS at build time. Setting them only via `environment` below
+      # is too late: by then the bundle is already compiled.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+    container_name: barbershop-frontend
+    # Loopback only: served publicly through Caddy.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+      - NODE_ENV=production
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: always
+
+  # Public entrypoint + automatic HTTPS (Let's Encrypt). Set DOMAIN and
+  # API_DOMAIN in .env to real hostnames pointing at this server; Caddy
+  # provisions/renews certs on its own. With the localhost defaults it
+  # serves a self-signed cert (fine for a smoke test, not for real users).
+  caddy:
+    image: caddy:2-alpine
+    container_name: barbershop-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - API_DOMAIN=${API_DOMAIN:-localhost:8443}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+      - frontend
+    restart: always
+
+volumes:
+  chroma_data:
+  model_cache:
+  caddy_data:
+  caddy_config:

@@ -2,8 +2,11 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import localFont from 'next/font/local'
 import './globals.css'
-import { FloatingChatWidget } from '@/components/ui/floating-chat'
 import { ChatProvider } from '@/context/chat-context'
+import { FloatingChatLoader } from '@/components/ui/floating-chat-loader'
+import { QueryProvider } from '@/components/providers/query-provider'
+import { GoogleAuthProvider } from '@/components/providers/google-auth-provider'
+import { Toaster } from 'sonner'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -39,10 +42,15 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" data-scroll-behavior="smooth">
       <body className={`${inter.variable} ${clashDisplay.variable} font-sans antialiased bg-background text-foreground`}>
-        <ChatProvider>
-          {children}
-          <FloatingChatWidget />
-        </ChatProvider>
+        <GoogleAuthProvider>
+          <QueryProvider>
+            <ChatProvider>
+              {children}
+              <FloatingChatLoader />
+              <Toaster richColors position="top-right" />
+            </ChatProvider>
+          </QueryProvider>
+        </GoogleAuthProvider>
       </body>
     </html>
   )

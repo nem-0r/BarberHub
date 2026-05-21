@@ -1,7 +1,7 @@
 import uuid
 import enum
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field, Relationship
 import sqlalchemy as sa
@@ -19,20 +19,23 @@ class Booking(SQLModel, table=True):
     __tablename__ = "bookings"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    client_id: uuid.UUID = Field(foreign_key="users.id", nullable=False)
-    staff_id: uuid.UUID = Field(foreign_key="staff.id", nullable=False)
-    service_id: uuid.UUID = Field(foreign_key="services.id", nullable=False)
-    start_time: datetime = Field(nullable=False)
-    end_time: datetime = Field(nullable=False)
+    client_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
+    staff_id: uuid.UUID = Field(foreign_key="staff.id", nullable=False, index=True)
+    service_id: uuid.UUID = Field(foreign_key="services.id", nullable=False, index=True)
+    start_time: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, index=True))
+    end_time: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
     final_price: Decimal = Field(
         sa_column=sa.Column(sa.Numeric(10, 2), nullable=False)
     )
     status: BookingStatus = Field(
         sa_column=sa.Column(
-            sa.Enum(BookingStatus), nullable=False, default=BookingStatus.pending
+            sa.Enum(BookingStatus), nullable=False, default=BookingStatus.pending, index=True
         )
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, default=sa.func.now()),
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     # Relationships
     client: Optional["User"] = Relationship(

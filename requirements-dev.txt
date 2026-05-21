@@ -1,0 +1,5 @@
+# Test/CI-only deps. Not installed in the prod image.
+-r requirements.txt
+pytest
+pytest-asyncio
+httpx

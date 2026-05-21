@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
+import { signOut } from "@/lib/auth"
 import {
   Scissors,
   Menu,
@@ -60,6 +62,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function Navbar() {
   const pathname = usePathname()
+  const queryClient = useQueryClient()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [user, setUser] = useState<any>(null)
@@ -82,9 +85,7 @@ export function Navbar() {
   }, [])
 
   const handleLogout = () => {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user")
-    window.location.href = "/"
+    signOut(queryClient)
   }
 
   const isPartner = pathname.startsWith("/partner")

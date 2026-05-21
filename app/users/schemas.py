@@ -11,7 +11,15 @@ class UserCreate(SQLModel):
     password: str
     full_name: str
     phone: str
-    role: UserRole = UserRole.client
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if len(v) > 128:
+            raise ValueError("Password must be at most 128 characters")
+        return v
 
 
 class UserLogin(SQLModel):
@@ -19,11 +27,23 @@ class UserLogin(SQLModel):
     password: str
 
 
+class GoogleOAuthRequest(SQLModel):
+    """Google Identity Services credential — the id_token (JWT) returned to the browser."""
+    id_token: str
+
+
 class UserUpdate(BaseModel):
     """Partial update for user profile. All fields optional."""
     full_name: Optional[str] = None
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
+
+    @field_validator("avatar_url")
+    @classmethod
+    def avatar_url_scheme(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.startswith(("http://", "https://")):
+            raise ValueError("avatar_url must use http or https scheme")
+        return v
 
     @field_validator("full_name")
     @classmethod
@@ -47,7 +67,7 @@ class UserRead(SQLModel):
     id: uuid.UUID
     email: str
     full_name: str
-    phone: str
+    phone: Optional[str] = None
     role: UserRole
     is_verified: bool
     avatar_url: Optional[str] = None
@@ -65,3 +85,12 @@ class ForgotPasswordRequest(SQLModel):
 class ResetPasswordConfirm(SQLModel):
     """Password reset confirmation schema."""
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if len(v) > 128:
+            raise ValueError("Password must be at most 128 characters")
+        return v

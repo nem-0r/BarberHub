@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch/PR cancels the in-flight run — no point
+# spending CI minutes on a commit that's already superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (tests + migrations, real Postgres/Redis)
+    runs-on: ubuntu-latest
+
+    # Ephemeral infra that lives ONLY for this run — the "real DB in CI"
+    # pattern, NOT the production Supabase. pgvector/pgvector image (not
+    # stock postgres) because the RAG migration runs `CREATE EXTENSION vector`.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # App + RAG sync engine + Alembic all point at the CI Postgres.
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      # Set → the double-booking concurrency test ACTUALLY runs here instead
+      # of skipping (advice.md red flag #2 becomes CI-enforced).
+      TEST_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      SECRET_KEY: ci-test-secret
+      ALLOWED_HOSTS: "*"
+      DEBUG: "True"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"   # pinned to the prod runtime (Dockerfile)
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only torch first (matches Dockerfile) — avoids the ~1GB CUDA build
+          pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt        # pulls -r requirements.txt + pytest stack
+          pip install -r rag_core/requirements.txt
+
+      - name: Apply migrations (validates the chain incl. pgvector)
+        run: alembic upgrade head
+
+      - name: Run test suite (smoke + business logic + concurrency)
+        run: pytest -v
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        # --frozen-lockfile: refuse to modify pnpm-lock.yaml silently. Makes
+        # the lockfile the single source of truth for reproducible builds and
+        # surfaces drift as a CI failure instead of letting it through.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm build

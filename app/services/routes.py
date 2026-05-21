@@ -7,6 +7,7 @@ from app.services.schemas import ServiceCreate, ServiceUpdate, ServiceRead
 import app.services.service as svc
 from app.dependencies import get_current_user, RoleChecker
 from app.users.models import UserRole, User
+from app.pagination import pagination_params
 
 router = APIRouter(prefix="/services", tags=["Services"])
 
@@ -19,9 +20,10 @@ async def list_services(
     max_price: Optional[float] = None,
     sort_by: str = "name",
     order: str = "asc",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    pagination: dict = Depends(pagination_params),
 ):
-    return await svc.get_all_services(session, min_price, max_price, sort_by, order)
+    return await svc.get_all_services(session, min_price, max_price, sort_by, order, **pagination)
 
 
 @router.get("/salon/{salon_id}", response_model=List[ServiceRead])

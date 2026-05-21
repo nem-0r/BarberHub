@@ -2,7 +2,8 @@
 
 BarberHub is a production-grade backend application demonstrating a complete Next.js and FastAPI stack combined with an advanced RAG (Retrieval-Augmented Generation) AI Assistant. The system handles business logic (bookings, online salon management) and provides AI-driven contextual assistance to users.
 
-## Key Technologies
+
+Key Technologies
 
 - **Frontend:** Next.js (App Router), React Context API, TailwindCSS
 - **Backend Core:** Python 3.10+, FastAPI (ASGI), Uvicorn

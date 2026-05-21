@@ -7,8 +7,9 @@ class SalonCreate(SQLModel):
     owner_id: uuid.UUID
     name: str
     address: str
-    timezone: str = "UTC"
+    timezone: str = "Asia/Almaty"
     city: Optional[str] = None
+    phone: Optional[str] = None
     description: Optional[str] = None
     rating: Optional[float] = None
     review_count: int = 0
@@ -24,6 +25,7 @@ class SalonUpdate(SQLModel):
     address: Optional[str] = None
     timezone: Optional[str] = None
     city: Optional[str] = None
+    phone: Optional[str] = None
     description: Optional[str] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
@@ -41,6 +43,7 @@ class SalonRead(SQLModel):
     address: str
     timezone: str
     city: Optional[str]
+    phone: Optional[str] = None
     description: Optional[str]
     rating: Optional[float]
     review_count: int

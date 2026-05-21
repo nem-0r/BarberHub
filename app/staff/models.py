@@ -8,8 +8,8 @@ class Staff(SQLModel, table=True):
     __tablename__ = "staff"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False)
-    salon_id: uuid.UUID = Field(foreign_key="salons.id", nullable=False)
+    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
+    salon_id: uuid.UUID = Field(foreign_key="salons.id", nullable=False, index=True)
     position: str = Field(sa_column=sa.Column(sa.String(50), nullable=False))
     image_url: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(255), nullable=True))
     years_experience: Optional[int] = Field(default=None, sa_column=sa.Column(sa.Integer, nullable=True))

@@ -9,7 +9,7 @@ class Service(SQLModel, table=True):
     __tablename__ = "services"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    salon_id: uuid.UUID = Field(foreign_key="salons.id", nullable=False)
+    salon_id: uuid.UUID = Field(foreign_key="salons.id", nullable=False, index=True)
     name: str = Field(sa_column=sa.Column(sa.String(100), nullable=False))
     base_price: Decimal = Field(sa_column=sa.Column(sa.Numeric(10, 2), nullable=False))
     duration_minutes: int = Field(nullable=False)

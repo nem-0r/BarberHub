@@ -3,10 +3,11 @@
 import { use, useState, useMemo, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, usePathname, useRouter } from "next/navigation"
 import { notFound } from "next/navigation"
 import { Navbar } from "@/components/barberhub/navbar"
 import { api } from "@/lib/api"
+import { toUtcIsoFromSalonLocal } from "@/lib/datetime"
 import {
   ArrowLeft,
   Check,
@@ -20,6 +21,7 @@ import {
   Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 type Step = 1 | 2 | 3 | 4
 
@@ -30,12 +32,17 @@ const steps = [
   { id: 4, label: "Confirm", icon: CreditCard },
 ]
 
-const timeSlots = [
-  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-  "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
-  "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
-  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM",
-]
+
+/** True if a salon-local slot (date + HH:MM) is already in the past. Guards
+ *  the latency window between fetching slots and confirming. */
+function isSlotInPast(dateStr: string, time: string, tz?: string): boolean {
+  try {
+    const iso = toUtcIsoFromSalonLocal(dateStr, time, tz)
+    return new Date(iso).getTime() <= Date.now()
+  } catch {
+    return false
+  }
+}
 
 function generateDates() {
   const dates = []
@@ -61,6 +68,8 @@ export default function BookingPage({
 }) {
   const { salonId } = use(params)
   const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const router = useRouter()
 
   const [salon, setSalon] = useState<any>(null)
   const [barbers, setBarbers] = useState<any[]>([])
@@ -79,6 +88,12 @@ export default function BookingPage({
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedTime, setSelectedTime] = useState<string | null>(null)
   const [isBooked, setIsBooked] = useState(false)
+  const [availableSlots, setAvailableSlots] = useState<string[]>([])
+  const [slotsLoading, setSlotsLoading] = useState(false)
+  // barberId → Map(serviceId → custom_price|null) the barber actually performs.
+  const [barberServiceMap, setBarberServiceMap] = useState<Record<string, Map<string, number | null>>>({})
+  const [barberMapLoading, setBarberMapLoading] = useState(true)
+  const [bookedPrice, setBookedPrice] = useState<number | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -91,7 +106,7 @@ export default function BookingPage({
         setSalon(salonData)
         setBarbers(barbersData)
         setServices(servicesData)
-        
+
         if (preSelectedService) setSelectedService(preSelectedService)
         if (preSelectedBarber) setSelectedBarber(preSelectedBarber)
         if (preSelectedService) setCurrentStep(2)
@@ -103,6 +118,55 @@ export default function BookingPage({
     }
     loadData()
   }, [salonId, preSelectedService, preSelectedBarber])
+
+  // Build the barber→services map once barbers are known. Used to show only
+  // barbers who actually perform the chosen service (a barber not linked to
+  // the service in staff_services would otherwise 400 at booking).
+  useEffect(() => {
+    if (barbers.length === 0) return
+    let cancelled = false
+    setBarberMapLoading(true)
+    Promise.all(
+      barbers.map((b) =>
+        api.getStaffServices(b.id)
+          .then((links: any[]) => [
+            b.id,
+            new Map<string, number | null>(
+              links.map((l) => [
+                l.service_id,
+                l.custom_price != null ? Number(l.custom_price) : null,
+              ]),
+            ),
+          ] as const)
+          .catch(() => [b.id, new Map<string, number | null>()] as const),
+      ),
+    ).then((entries) => {
+      if (cancelled) return
+      const map = Object.fromEntries(entries)
+      setBarberServiceMap(map)
+      setBarberMapLoading(false)
+      // Drop a pre-selected barber (from URL) who doesn't perform the chosen
+      // service — otherwise the user only learns at the final confirm step.
+      if (preSelectedBarber && selectedService && !map[preSelectedBarber]?.has(selectedService)) {
+        setSelectedBarber(null)
+      }
+    })
+    return () => { cancelled = true }
+  }, [barbers, preSelectedBarber, selectedService])
+
+  // Fetch free slots from backend whenever barber, date, or service changes
+  useEffect(() => {
+    if (!selectedBarber || !selectedDate || !selectedService) {
+      setAvailableSlots([])
+      return
+    }
+    setSlotsLoading(true)
+    setSelectedTime(null)
+    api.getAvailableSlots(selectedBarber, selectedDate, selectedService)
+      .then(setAvailableSlots)
+      .catch(() => setAvailableSlots([]))
+      .finally(() => setSlotsLoading(false))
+  }, [selectedBarber, selectedDate, selectedService])
 
   const selectedServiceData = services.find((s) => s.id === selectedService)
   const selectedBarberData = barbers.find((b) => b.id === selectedBarber)
@@ -148,16 +212,6 @@ export default function BookingPage({
 
   function handleConfirm() {
     setBookingLoading(true)
-    
-    // Helper to combine date and time into ISO-8601 string
-    const combineDateTime = (date: string, time: string): string => {
-      const [timePart, ampm] = time.split(' ')
-      let [hours, minutes] = timePart.split(':').map(Number)
-      if (ampm === 'PM' && hours !== 12) hours += 12
-      if (ampm === 'AM' && hours === 12) hours = 0
-      // No timezone suffix — DB column is TIMESTAMP WITHOUT TIME ZONE (offset-naive)
-      return `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`
-    }
 
     const token = localStorage.getItem("token")
     const userStr = localStorage.getItem("user")
@@ -165,35 +219,59 @@ export default function BookingPage({
     if (!token || !userStr) {
       localStorage.removeItem("token")
       localStorage.removeItem("user")
-      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      const qs = searchParams.toString()
+      const here = qs ? `${pathname}?${qs}` : pathname
+      setBookingLoading(false)
+      router.replace(`/login?redirect=${encodeURIComponent(here)}`)
       return
     }
 
     const currentUser = JSON.parse(userStr)
 
+    // Backend returns slots in salon-local time (HH:MM). Convert salon-local
+    // datetime → UTC ISO with Z so the booking is unambiguous regardless of
+    // the user's browser timezone.
+    const startUtcIso = toUtcIsoFromSalonLocal(
+      selectedDate!,
+      selectedTime!,
+      salon?.timezone,
+    )
+
     const payload = {
       client_id: currentUser.id,
       staff_id: selectedBarber,
       service_id: selectedService,
-      start_time: combineDateTime(selectedDate!, selectedTime!),
+      start_time: startUtcIso,
     }
 
     api.createBooking(payload, token)
-      .then(() => setIsBooked(true))
+      .then((booking: any) => {
+        // Authoritative price the backend actually charged (custom_price if the
+        // barber overrides the service base price).
+        if (booking?.final_price != null) setBookedPrice(Number(booking.final_price))
+        setIsBooked(true)
+      })
       .catch(err => {
         if ((err as any).code === "UNAUTHORIZED") {
           localStorage.removeItem("token")
           localStorage.removeItem("user")
-          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+          const qs = searchParams.toString()
+          const here = qs ? `${pathname}?${qs}` : pathname
+          setBookingLoading(false)
+          router.replace(`/login?redirect=${encodeURIComponent(here)}`)
           return
         }
-        alert("Booking failed: " + (err.message || "Unknown error"))
+        toast.error("Booking failed: " + (err.message || "Unknown error"))
       })
       .finally(() => setBookingLoading(false))
   }
 
+  // Only active services are bookable — never offer a disabled service
+  // (create_booking rejects it with 400 "service unavailable").
+  const bookableServices = services.filter((s: any) => s.isActive !== false)
+
   // Group services by category
-  const servicesByCategory = services.reduce(
+  const servicesByCategory = bookableServices.reduce(
     (acc, service) => {
       if (!acc[service.category]) {
         acc[service.category] = []
@@ -203,6 +281,20 @@ export default function BookingPage({
     },
     {} as Record<string, typeof services>
   )
+
+  // Step 2 list: only barbers who actually perform the chosen service.
+  const eligibleBarbers = selectedService
+    ? barbers.filter((b) => barberServiceMap[b.id]?.has(selectedService))
+    : barbers
+
+  // Price the client will actually be charged: the barber's custom_price for
+  // this service if set, otherwise the service base price.
+  const customPrice =
+    selectedBarber && selectedService
+      ? barberServiceMap[selectedBarber]?.get(selectedService)
+      : null
+  const effectivePrice =
+    customPrice != null ? customPrice : selectedServiceData?.price
 
   if (isBooked) {
     return (
@@ -253,7 +345,7 @@ export default function BookingPage({
                 <div className="border-t border-border-solid pt-3 mt-3 flex justify-between">
                   <span className="text-foreground font-semibold">Total</span>
                   <span className="text-brand font-bold text-lg">
-                    ${selectedServiceData?.price}
+                    {bookedPrice ?? selectedServiceData?.price} ₸
                   </span>
                 </div>
               </div>
@@ -354,15 +446,23 @@ export default function BookingPage({
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
                   Choose a Service
                 </h2>
+                {bookableServices.length === 0 ? (
+                  <div className="py-12 text-center border border-dashed border-border-solid rounded-xl">
+                    <Scissors className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-muted-foreground text-sm">
+                      В этом салоне пока нет услуг.
+                    </p>
+                  </div>
+                ) : (
                 <div className="space-y-6">
-                  {Object.entries(servicesByCategory).map(
+                  {(Object.entries(servicesByCategory) as [string, any[]][]).map(
                     ([category, categoryServices]) => (
                       <div key={category}>
                         <h3 className="text-sm font-medium text-muted-foreground mb-3">
                           {category}
                         </h3>
                         <div className="space-y-2">
-                          {categoryServices.map((service) => (
+                          {categoryServices.map((service: any) => (
                             <button
                               key={service.id}
                               onClick={() => setSelectedService(service.id)}
@@ -386,7 +486,7 @@ export default function BookingPage({
                                 </p>
                               </div>
                               <span className="font-bold text-lg text-brand">
-                                ${service.price}
+                                {service.price} ₸
                               </span>
                             </button>
                           ))}
@@ -395,6 +495,7 @@ export default function BookingPage({
                     )
                   )}
                 </div>
+                )}
               </div>
             )}
 
@@ -404,8 +505,19 @@ export default function BookingPage({
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
                   Choose Your Barber
                 </h2>
+                {barberMapLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground text-sm py-6">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading available barbers...
+                  </div>
+                ) : eligibleBarbers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6">
+                    No barber at this salon performs the selected service yet.
+                    Please pick a different service or check back later.
+                  </p>
+                ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {barbers.map((barber) => (
+                  {eligibleBarbers.map((barber) => (
                     <button
                       key={barber.id}
                       onClick={() => setSelectedBarber(barber.id)}
@@ -441,6 +553,7 @@ export default function BookingPage({
                     </button>
                   ))}
                 </div>
+                )}
               </div>
             )}
 
@@ -487,22 +600,43 @@ export default function BookingPage({
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">
                     Select Time
                   </h3>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {timeSlots.map((time) => (
-                      <button
-                        key={time}
-                        onClick={() => setSelectedTime(time)}
-                        className={cn(
-                          "py-2 px-3 rounded-lg border text-sm font-medium transition-all",
-                          selectedTime === time
-                            ? "border-brand bg-brand/10 text-brand"
-                            : "border-border-solid text-muted-foreground hover:border-brand/30 hover:text-foreground"
-                        )}
-                      >
-                        {time}
-                      </button>
-                    ))}
-                  </div>
+                  {slotsLoading ? (
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading available times...
+                    </div>
+                  ) : availableSlots.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedDate && selectedBarber && selectedService
+                        ? "No available slots for this day. The barber may be off or fully booked."
+                        : "Select a service, barber, and date to see available times."}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                      {availableSlots.map((time) => {
+                        const past = isSlotInPast(selectedDate!, time, salon?.timezone)
+                        return (
+                          <button
+                            key={time}
+                            onClick={() => !past && setSelectedTime(time)}
+                            disabled={past}
+                            aria-disabled={past}
+                            title={past ? "This time has already passed" : undefined}
+                            className={cn(
+                              "py-2 px-3 rounded-lg border text-sm font-medium transition-all",
+                              past
+                                ? "border-border-solid text-muted-foreground/40 line-through bg-muted/20 cursor-not-allowed"
+                                : selectedTime === time
+                                  ? "border-brand bg-brand/10 text-brand"
+                                  : "border-border-solid text-muted-foreground hover:border-brand/30 hover:text-foreground"
+                            )}
+                          >
+                            {time}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -524,18 +658,24 @@ export default function BookingPage({
                       </p>
                     </div>
                     <span className="font-bold text-brand">
-                      ${selectedServiceData?.price}
+                      {effectivePrice} ₸
                     </span>
                   </div>
 
                   <div className="flex items-center gap-4 p-4 bg-surface-elevated rounded-xl">
-                    <div className="relative w-10 h-10 rounded-full overflow-hidden">
-                      <Image
-                        src={selectedBarberData?.avatar || ""}
-                        alt={selectedBarberData?.name || ""}
-                        fill
-                        className="object-cover"
-                      />
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden bg-surface-elevated flex items-center justify-center">
+                      {selectedBarberData?.avatar ? (
+                        <Image
+                          src={selectedBarberData.avatar}
+                          alt={selectedBarberData?.name || ""}
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-bold text-muted-foreground">
+                          {selectedBarberData?.name?.charAt(0)?.toUpperCase() ?? "?"}
+                        </span>
+                      )}
                     </div>
                     <div className="flex-1">
                       <p className="text-sm text-muted-foreground">Barber</p>
@@ -557,19 +697,20 @@ export default function BookingPage({
                       </p>
                     </div>
                   </div>
+
                 </div>
 
                 <div className="border-t border-border-solid pt-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-muted-foreground">Service</span>
                     <span className="text-foreground">
-                      ${selectedServiceData?.price}
+                      {effectivePrice} ₸
                     </span>
                   </div>
                   <div className="flex items-center justify-between font-bold text-lg">
                     <span className="text-foreground">Total Due at Salon</span>
                     <span className="text-brand">
-                      ${selectedServiceData?.price}
+                      {effectivePrice} ₸
                     </span>
                   </div>
                 </div>

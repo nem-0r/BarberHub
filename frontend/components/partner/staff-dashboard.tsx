@@ -1,17 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { 
-  Calendar, 
-  Clock, 
-  CheckCircle2, 
-  User, 
+import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import {
+  Calendar,
+  Clock,
+  CheckCircle2,
+  User,
   ExternalLink,
   Loader2,
   Scissors
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import {
+  queryKeys,
+  useStaffByUserQuery,
+  useBookingsForStaffQuery,
+} from "@/lib/queries"
+import { formatTimeInSalonTz, isSameSalonDay } from "@/lib/datetime"
+import { toast } from "sonner"
 
 interface StaffDashboardProps {
   user: any
@@ -19,56 +27,48 @@ interface StaffDashboardProps {
 }
 
 export function StaffDashboard({ user, salon }: StaffDashboardProps) {
-  const [appointments, setAppointments] = useState<any[]>([])
-  const [staffProfile, setStaffProfile] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [completing, setCompleting] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!salon) {
-      setLoading(false)
-      return
-    }
+  // Token is read once per action; the queries themselves don't need it for
+  // the staff profile fetch (public-by-id endpoint).
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
 
-    async function loadAppointments() {
-      try {
-        const token = localStorage.getItem("token")
-        if (!token) return
+  // Cache-shared with sidebar/schedule page — no duplicate request.
+  const staffProfileQuery = useStaffByUserQuery(salon ? user?.id : null)
+  const staffProfile = staffProfileQuery.data
+  const bookingsQuery = useBookingsForStaffQuery(staffProfile?.id, token)
+  const appointments: any[] = bookingsQuery.data ?? []
 
-        // Direct user→staff lookup (avoids scanning full salon list)
-        const myProfile = await api.getStaffByUserId(user.id)
-        if (!myProfile) return
-
-        setStaffProfile(myProfile)
-
-        // Use the staff-specific endpoint — staff are not authorized to view all salon bookings
-        const data = await api.getBookingsForStaff(myProfile.id, token)
-        setAppointments(data)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadAppointments()
-  }, [salon?.id, user.id])
+  const updateBookingCache = (bookingId: string, status: string) => {
+    if (!staffProfile) return
+    queryClient.setQueryData<any[]>(
+      queryKeys.bookingsForStaff(staffProfile.id),
+      (prev) => (prev ?? []).map(a => a.id === bookingId ? { ...a, status } : a),
+    )
+  }
 
   const handleComplete = async (bookingId: string) => {
     setCompleting(bookingId)
     try {
-      // In a real app, we'd have api.updateBookingStatus
-      // For now, let's just simulate or use a generic update if available
-      // Assuming POS status update exists
-      await new Promise(r => setTimeout(r, 1000))
-      setAppointments(prev => prev.map(a => a.id === bookingId ? { ...a, status: "completed" } : a))
-    } catch (err) {
+      if (!token) return
+      await api.updateBookingStatus(bookingId, "completed", token)
+      updateBookingCache(bookingId, "completed")
+    } catch (err: any) {
       console.error(err)
+      toast.error(err.message || "Failed to complete booking")
     } finally {
       setCompleting(null)
     }
   }
 
-  if (loading) {
+  // First-paint loading: only block when we have nothing to show yet.
+  const initialLoading =
+    !!salon &&
+    ((staffProfileQuery.isLoading && !staffProfile) ||
+      (bookingsQuery.isLoading && !bookingsQuery.data))
+
+  if (initialLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="w-12 h-12 text-brand animate-spin" />
@@ -89,9 +89,13 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
     )
   }
 
-  const today = new Date().toISOString().split('T')[0]
-  const todayApts = appointments.filter(a => a.start_time.startsWith(today))
-  const upcomingApts = appointments.filter(a => !a.start_time.startsWith(today) && a.status === "confirmed")
+  // "Today" is salon-local — comparing by salon TZ avoids midnight drift for
+  // staff in a different timezone than the salon.
+  const salonTz = salon?.timezone
+  const todayApts = appointments.filter(a => isSameSalonDay(a.start_time, a.salon_timezone ?? salonTz))
+  const upcomingApts = appointments.filter(
+    a => !isSameSalonDay(a.start_time, a.salon_timezone ?? salonTz) && a.status === "confirmed",
+  )
 
   return (
     <div className="space-y-8">
@@ -123,29 +127,35 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
               <div key={apt.id} className="bento-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-2xl bg-sidebar-accent flex flex-col items-center justify-center">
-                    <span className="text-xs font-bold text-brand">{new Date(apt.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-xs font-bold text-brand">{formatTimeInSalonTz(apt.start_time, apt.salon_timezone ?? salonTz)}</span>
                   </div>
                   <div>
-                    <h3 className="font-bold text-foreground">Verified Client</h3>
+                    <h3 className="font-bold text-foreground">{apt.client_full_name ?? "Client"}</h3>
                     <p className="text-sm text-muted-foreground flex items-center gap-1">
                       <Scissors className="w-3 h-3" />
-                      Service #{apt.service_id.substring(0, 8)}
+                      {apt.service_name ?? "Service"}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 w-full sm:w-auto mt-4 sm:mt-0">
-                  <div className="px-3 py-1 bg-brand/10 text-brand rounded-lg text-xs font-bold uppercase tracking-wider">
+                <div className="flex items-center gap-2 w-full sm:w-auto mt-4 sm:mt-0 flex-wrap">
+                  <div className={cn(
+                    "px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider",
+                    apt.status === "confirmed" ? "bg-brand/10 text-brand" :
+                    apt.status === "pending" ? "bg-gold/10 text-gold" :
+                    apt.status === "completed" ? "bg-green-500/10 text-green-500" :
+                    "bg-muted text-muted-foreground"
+                  )}>
                     {apt.status}
                   </div>
                   {apt.status === "confirmed" && (
                     <button
                       disabled={completing === apt.id}
                       onClick={() => handleComplete(apt.id)}
-                      className="ml-auto sm:ml-0 flex-1 sm:flex-none px-6 py-2 bg-brand text-brand-foreground rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-brand/90 transition-all shadow-md shadow-brand/20"
+                      className="ml-auto sm:ml-0 flex-1 sm:flex-none px-4 py-2 bg-brand text-brand-foreground rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-brand/90 transition-all shadow-md shadow-brand/20"
                     >
                       {completing === apt.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      Complete
+                      Done
                     </button>
                   )}
                 </div>

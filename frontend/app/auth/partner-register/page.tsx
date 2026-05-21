@@ -68,12 +68,13 @@ export default function PartnerRegisterPage() {
 
     try {
       // 1. Register user only (no login or salon creation yet)
+      // Role is always "client" on registration — backend upgrades to "owner"
+      // automatically when the salon is created after email verification.
       await api.register({
         email: formData.email,
         password: formData.password,
         full_name: formData.ownerName,
         phone: formData.phone,
-        role: "owner"
       })
 
       // 2. Save salon data to localStorage to create AFTER verification

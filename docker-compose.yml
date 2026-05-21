@@ -1,13 +1,18 @@
 services:
   # 1. Redis (Message Broker for Celery & Cache)
+  # Bound to loopback only: dev workflow is unchanged (other containers reach it
+  # via the compose network as `redis:6379`), but if this compose is ever brought
+  # up on a cloud VM, Redis (no auth) is NOT exposed to the public internet.
   redis:
     image: redis:7-alpine
     container_name: barbershop-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     restart: always
 
   # 2. Elasticsearch (Log Storage)
+  # Loopback-only for the same reason — `xpack.security.enabled=false` means no
+  # auth at all; never let port 9200 face the public internet.
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     container_name: barbershop-elasticsearch
@@ -16,14 +21,16 @@ services:
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms256m -Xmx256m
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     restart: always
 
   # 3. FastAPI App (Core API + RAG Chatbot)
+  # Built once here; worker/beat/flower reuse the same image via `image:` below
   app:
     build: .
+    image: barbershop-backend
     container_name: barbershop-api
     command: bash ./entrypoint.sh
     ports:
@@ -33,22 +40,19 @@ services:
     environment:
       - REDIS_HOST=redis
       - ELASTIC_HOST=elasticsearch
-      # BGE-M3 model cache path (persisted in named volume)
       - SENTENCE_TRANSFORMERS_HOME=/model_cache
     depends_on:
       - redis
       - elasticsearch
     volumes:
       - .:/app
-      # ChromaDB vector store — persists across container restarts/rebuilds
       - chroma_data:/app/rag_core/chroma_data
-      # BGE-M3 model weights (~2GB) — download once, reuse forever
       - model_cache:/model_cache
     restart: always
 
-  # 4. Celery Worker (Email sending, Image compression)
+  # 4. Celery Worker — reuses the same image as app (no separate build)
   worker:
-    build: .
+    image: barbershop-backend
     container_name: barbershop-worker
     command: python3 -m celery -A app.celery_app:celery_app worker --loglevel=info -Q email_queue,image_queue,celery
     env_file:
@@ -63,9 +67,9 @@ services:
       - .:/app
     restart: always
 
-  # 5. Celery Beat (Appointment Reminders)
+  # 5. Celery Beat — reuses the same image as app
   beat:
-    build: .
+    image: barbershop-backend
     container_name: barbershop-beat
     command: python3 -m celery -A app.celery_app:celery_app beat --loglevel=info
     env_file:
@@ -80,13 +84,15 @@ services:
       - .:/app
     restart: always
 
-  # 6. Flower (Celery Monitoring)
+  # 6. Flower — reuses the same image as app
+  # Loopback-only: Flower has full visibility into task arguments and no auth in
+  # dev. Reach it at http://localhost:5555 from your own machine.
   flower:
-    build: .
+    image: barbershop-backend
     container_name: barbershop-flower
     command: python3 -m celery -A app.celery_app:celery_app flower --port=5555
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     env_file:
       - .env
     environment:
@@ -100,13 +106,14 @@ services:
     restart: always
 
   # 7. Redis Commander (Redis Cache GUI)
+  # Loopback-only — no auth, exposes all Redis contents.
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: barbershop-redis-commander
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     depends_on:
       - redis
     restart: always
@@ -116,11 +123,12 @@ services:
     build:
       context: ./frontend
     container_name: barbershop-frontend
-    command: sh -c "pnpm install && pnpm dev"
+    command: sh -c "pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm dev"
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_URL_INTERNAL=http://app:8000
       - WATCHPACK_POLLING=true
     volumes:
       - ./frontend:/app
@@ -134,6 +142,5 @@ volumes:
   es_data:
   frontend_node_modules:
   frontend_next:
-  # RAG volumes — data persists across container restarts
   chroma_data:
   model_cache:

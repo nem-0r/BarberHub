@@ -1,11 +1,7 @@
-"use client"
-
-import { useState, useMemo, useEffect } from "react"
 import { Navbar } from "@/components/barberhub/navbar"
-import { SearchBar } from "@/components/marketplace/search-bar"
-import { SalonCard } from "@/components/marketplace/salon-card"
-import { api } from "@/lib/api"
-import { Scissors, TrendingUp, Users, Clock, Loader2 } from "lucide-react"
+import { Scissors, TrendingUp, Users, Clock } from "lucide-react"
+import { getSalonsServer } from "@/lib/api-server"
+import { MarketplaceClient } from "./marketplace-client"
 
 const stats = [
   { icon: Scissors, label: "Partner Salons", value: "500+" },
@@ -14,40 +10,13 @@ const stats = [
   { icon: Clock, label: "Hours Saved", value: "10K+" },
 ]
 
-export default function MarketplacePage() {
-  const [salons, setSalons] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCity, setSelectedCity] = useState("All Cities")
+// ISR: regenerate page at most once per minute. Salon list is read-heavy and changes
+// rarely, so caching the rendered HTML on the Next.js side gives near-instant first paint
+// without burdening the API on every visit.
+export const revalidate = 60
 
-  useEffect(() => {
-    async function loadSalons() {
-      try {
-        const data = await api.getSalons()
-        setSalons(data)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadSalons()
-  }, [])
-
-  const filteredSalons = useMemo(() => {
-    return salons.filter((salon) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        salon.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        salon.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        salon.description.toLowerCase().includes(searchQuery.toLowerCase())
-
-      const matchesCity =
-        selectedCity === "All Cities" || salon.city === selectedCity
-
-      return matchesSearch && matchesCity
-    })
-  }, [searchQuery, selectedCity])
+export default async function MarketplacePage() {
+  const salons = await getSalonsServer(60)
 
   return (
     <div className="min-h-screen bg-background">
@@ -56,7 +25,6 @@ export default function MarketplacePage() {
       {/* Hero Section */}
       <section className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-10">
             <h1 className="font-display font-bold text-4xl sm:text-5xl lg:text-6xl text-foreground mb-4 text-balance">
               Find Your Perfect{" "}
@@ -67,14 +35,8 @@ export default function MarketplacePage() {
             </p>
           </div>
 
-          {/* Search Bar */}
-          <SearchBar
-            onSearch={setSearchQuery}
-            onCityChange={setSelectedCity}
-            selectedCity={selectedCity}
-          />
+          <MarketplaceClient initialSalons={salons} />
 
-          {/* Quick Stats */}
           <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4">
             {stats.map((stat) => (
               <div
@@ -91,49 +53,6 @@ export default function MarketplacePage() {
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* Salon Grid */}
-      <section className="py-12 px-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Section Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="font-display font-bold text-2xl text-foreground">
-                {selectedCity === "All Cities" ? "All Barbershops" : `Barbershops in ${selectedCity}`}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                {filteredSalons.length} {filteredSalons.length === 1 ? "result" : "results"} found
-              </p>
-            </div>
-          </div>
-
-          {/* Grid */}
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 bg-surface/50 rounded-3xl border border-dashed border-border-solid">
-              <Loader2 className="w-10 h-10 text-brand animate-spin mb-4" />
-              <p className="text-muted-foreground animate-pulse">Loading best barbershops for you...</p>
-            </div>
-          ) : filteredSalons.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredSalons.map((salon) => (
-                <SalonCard key={salon.id} salon={salon} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 rounded-full bg-surface-elevated mx-auto mb-4 flex items-center justify-center">
-                <Scissors className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="font-display font-bold text-xl text-foreground mb-2">
-                No barbershops found
-              </h3>
-              <p className="text-muted-foreground">
-                Try adjusting your search or selecting a different city.
-              </p>
-            </div>
-          )}
         </div>
       </section>
 
@@ -155,7 +74,6 @@ export default function MarketplacePage() {
                 Become a Partner
               </a>
             </div>
-            {/* Decorative elements */}
             <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-brand/10 blur-3xl" />
             <div className="absolute -bottom-20 -left-20 w-64 h-64 rounded-full bg-gold/10 blur-3xl" />
           </div>

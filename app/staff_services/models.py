@@ -12,7 +12,7 @@ class StaffService(SQLModel, table=True):
     )
 
     staff_id: uuid.UUID = Field(foreign_key="staff.id", primary_key=True)
-    service_id: uuid.UUID = Field(foreign_key="services.id", primary_key=True)
+    service_id: uuid.UUID = Field(foreign_key="services.id", primary_key=True, index=True)
     custom_price: Optional[Decimal] = Field(
         default=None,
         sa_column=sa.Column(sa.Numeric(10, 2), nullable=True),

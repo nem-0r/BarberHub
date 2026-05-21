@@ -28,9 +28,30 @@ async def create_staff_service(data: StaffServiceCreate, session: AsyncSession, 
         raise HTTPException(status_code=404, detail="Staff not found")
         
     salon = await session.get(Salon, staff.salon_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
     if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify this staff's services")
-        
+
+    # Validate the service exists AND belongs to the same salon as the staff —
+    # otherwise a barber could be linked to another salon's service.
+    from app.services.models import Service
+    service = await session.get(Service, data.service_id)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    if str(service.salon_id) != str(staff.salon_id):
+        raise HTTPException(status_code=400, detail="Service does not belong to this staff member's salon")
+
+    # Idempotent: re-assigning an existing link updates its price instead of
+    # raising a composite-PK conflict (staff_id + service_id).
+    existing = await session.get(StaffService, (data.staff_id, data.service_id))
+    if existing:
+        existing.custom_price = data.custom_price
+        session.add(existing)
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
     link = StaffService(**data.model_dump())
     session.add(link)
     await session.commit()

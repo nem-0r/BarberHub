@@ -8,6 +8,7 @@ import app.reviews.service as svc
 from app.dependencies import get_current_user
 from app.users.models import User
 from app.limiter import limiter
+from app.pagination import pagination_params
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
@@ -24,5 +25,9 @@ async def create_review(
 
 
 @router.get("/salon/{salon_id}", response_model=List[ReviewRead])
-async def get_salon_reviews(salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    return await svc.get_reviews_for_salon(salon_id, session)
+async def get_salon_reviews(
+    salon_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    pagination: dict = Depends(pagination_params),
+):
+    return await svc.get_reviews_for_salon(salon_id, session, **pagination)

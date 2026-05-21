@@ -2,8 +2,10 @@
 
 import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
-import { Loader2, Plus, Star, Edit, Trash2, User, Mail, Phone, X, Calendar } from "lucide-react"
+import { Loader2, Plus, Star, Edit, Trash2, User, Mail, Phone, X, Calendar, Scissors } from "lucide-react"
+import { toast } from "sonner"
 import Image from "next/image"
 import Link from "next/link"
 import { PartnerSidebar } from "@/components/partner/partner-sidebar"
@@ -73,6 +75,7 @@ const initialStaff: StaffMember[] = [
 ]
 
 export default function StaffPage() {
+  const router = useRouter()
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -92,13 +95,13 @@ export default function StaffPage() {
       try {
         const userStr = localStorage.getItem("user")
         if (!userStr) {
-          window.location.href = "/login"
+          router.replace("/login")
           return
         }
         const user = JSON.parse(userStr)
         // Only owner / admin can manage the salon's staff list
         if (user.role !== "owner" && user.role !== "admin") {
-          window.location.href = "/partner/dashboard"
+          router.replace("/partner/dashboard")
           return
         }
         const salonData = await api.getSalonByOwnerId(user.id)
@@ -137,7 +140,7 @@ export default function StaffPage() {
       setShowAddModal(false)
       setNewStaff({ name: "", role: "", email: "", phone: "", specialties: "" })
     } catch (err: any) {
-      alert(err.message || "Failed to add staff")
+      toast.error(err.message || "Failed to add staff")
     } finally {
       setLoading(false)
     }
@@ -153,7 +156,7 @@ export default function StaffPage() {
       await api.deleteStaff(id, token)
       setStaff(staff.filter((s) => s.id !== id))
     } catch (err: any) {
-      alert(err.message || "Failed to delete staff")
+      toast.error(err.message || "Failed to delete staff")
     }
   }
 
@@ -170,7 +173,109 @@ export default function StaffPage() {
           : s
       ))
     } catch (err: any) {
-      alert("Failed to update status")
+      toast.error("Failed to update status")
+    }
+  }
+
+  // ── Services-per-barber assignment ────────────────────────────────────────
+  const [svcModalStaff, setSvcModalStaff] = useState<StaffMember | null>(null)
+  const [salonServices, setSalonServices] = useState<any[]>([])
+  const [svcRows, setSvcRows] = useState<
+    Record<string, { assigned: boolean; wasAssigned: boolean; price: string; origPrice: string }>
+  >({})
+  const [svcLoading, setSvcLoading] = useState(false)
+  const [svcSaving, setSvcSaving] = useState(false)
+
+  async function openServicesModal(member: StaffMember) {
+    // Reset so a failed load can never show the previous barber's rows.
+    setSalonServices([])
+    setSvcRows({})
+    setSvcModalStaff(member)
+    setSvcLoading(true)
+    try {
+      const [services, links] = await Promise.all([
+        api.getServicesBySalonId(salon.id),
+        api.getStaffServices(member.id),
+      ])
+      const active = services.filter((s: any) => s.isActive !== false)
+      const linkMap = new Map<string, any>(
+        (links as any[]).map((l) => [l.service_id, l]),
+      )
+      const rows: Record<string, any> = {}
+      for (const s of active) {
+        const link = linkMap.get(s.id)
+        const p = link && link.custom_price != null ? String(link.custom_price) : ""
+        rows[s.id] = { assigned: !!link, wasAssigned: !!link, price: p, origPrice: p }
+      }
+      setSalonServices(active)
+      setSvcRows(rows)
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load services")
+      setSvcModalStaff(null)
+    } finally {
+      setSvcLoading(false)
+    }
+  }
+
+  function setSvcRow(serviceId: string, patch: Partial<{ assigned: boolean; price: string }>) {
+    setSvcRows((prev) => ({ ...prev, [serviceId]: { ...prev[serviceId], ...patch } }))
+  }
+
+  async function saveServices() {
+    if (!svcModalStaff) return
+
+    // Pre-validate ALL prices before any write, so a bad input can't leave a
+    // half-saved set.
+    for (const s of salonServices) {
+      const row = svcRows[s.id]
+      if (!row || !row.assigned) continue
+      const trimmed = row.price.trim()
+      if (trimmed !== "") {
+        const n = Number(trimmed)
+        if (Number.isNaN(n) || n < 0) {
+          toast.error(`Invalid price for "${s.name}"`)
+          return
+        }
+      }
+    }
+
+    const token = localStorage.getItem("token")
+    if (!token) { toast.error("Not authenticated. Please log in again."); return }
+
+    setSvcSaving(true)
+    // Commit row-by-row into `next` so that on a mid-loop failure a retry only
+    // re-sends what's still pending (assign is an idempotent upsert anyway).
+    const next = { ...svcRows }
+    let failed: string | null = null
+    for (const s of salonServices) {
+      const row = next[s.id]
+      if (!row) continue
+      try {
+        if (row.assigned) {
+          const trimmed = row.price.trim()
+          const priceNum = trimmed === "" ? null : Number(trimmed)
+          const changed =
+            !row.wasAssigned ||
+            parseFloat(row.price || "0") !== parseFloat(row.origPrice || "0")
+          if (changed) {
+            await api.assignStaffService(svcModalStaff.id, s.id, priceNum, token)
+            next[s.id] = { ...row, wasAssigned: true, origPrice: trimmed }
+          }
+        } else if (row.wasAssigned) {
+          await api.removeStaffService(svcModalStaff.id, s.id, token)
+          next[s.id] = { ...row, wasAssigned: false, origPrice: "" }
+        }
+      } catch (err: any) {
+        failed = `${s.name}: ${err.message || "save failed"}`
+        break
+      }
+    }
+    setSvcRows(next)
+    setSvcSaving(false)
+    if (failed) {
+      toast.error(`Saved up to — ${failed}. Press Save again to retry the rest.`)
+    } else {
+      setSvcModalStaff(null)
     }
   }
 
@@ -187,7 +292,7 @@ export default function StaffPage() {
     <div className="min-h-screen bg-background">
       <PartnerSidebar />
 
-      <main className="ml-64 p-8">
+      <main className="lg:ml-64 p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -242,7 +347,14 @@ export default function StaffPage() {
               {/* Actions Menu */}
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="flex items-center gap-1">
-                  <Link 
+                  <button
+                    onClick={() => openServicesModal(member)}
+                    title="Manage services this barber provides"
+                    className="p-2 rounded-lg bg-surface-elevated hover:bg-brand/20 hover:text-brand transition-colors"
+                  >
+                    <Scissors className="w-4 h-4" />
+                  </button>
+                  <Link
                     href={`/partner/dashboard/schedule?staffId=${member.id}`}
                     className="p-2 rounded-lg bg-surface-elevated hover:bg-brand/20 hover:text-brand transition-colors"
                   >
@@ -440,6 +552,110 @@ export default function StaffPage() {
                 Add Staff Member
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Services Modal */}
+      {svcModalStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => !svcSaving && setSvcModalStaff(null)}
+          />
+          <div className="relative w-full max-w-lg bg-surface border border-border-solid rounded-2xl p-6 shadow-xl max-h-[85vh] flex flex-col">
+            <button
+              onClick={() => !svcSaving && setSvcModalStaff(null)}
+              className="absolute top-4 right-4 p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="font-display font-bold text-xl text-foreground mb-1">
+              Services — {svcModalStaff.name}
+            </h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              Choose which services this barber performs. Leave price empty to use
+              the service's base price, or set a custom price for this barber.
+            </p>
+
+            {svcLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm py-10 justify-center">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading services...
+              </div>
+            ) : salonServices.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-10 text-center">
+                No active services in this salon yet. Add services first in
+                "Services &amp; Pricing".
+              </p>
+            ) : (
+              <div className="space-y-2 overflow-y-auto pr-1">
+                {salonServices.map((s) => {
+                  const row = svcRows[s.id]
+                  if (!row) return null
+                  return (
+                    <div
+                      key={s.id}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-colors",
+                        row.assigned
+                          ? "border-brand/30 bg-brand/5"
+                          : "border-border-solid bg-surface-elevated/30"
+                      )}
+                    >
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={row.assigned}
+                          onChange={() => setSvcRow(s.id, { assigned: !row.assigned })}
+                        />
+                        <div className="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
+                      </label>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{s.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Base: {s.price} ₸ · {s.duration} min
+                        </p>
+                      </div>
+                      <div className="relative w-28 shrink-0">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="decimal"
+                          disabled={!row.assigned}
+                          value={row.price}
+                          onChange={(e) => setSvcRow(s.id, { price: e.target.value })}
+                          placeholder={`${s.price}`}
+                          className="w-full pl-3 pr-7 py-2 rounded-lg bg-surface-elevated border border-border-solid text-foreground text-sm focus:outline-none focus:border-brand disabled:opacity-40 disabled:cursor-not-allowed"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">₸</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-5 mt-1 border-t border-border-solid">
+              <button
+                onClick={() => setSvcModalStaff(null)}
+                disabled={svcSaving}
+                className="px-5 py-2.5 rounded-xl font-medium text-foreground hover:bg-surface-elevated transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveServices}
+                disabled={svcSaving || svcLoading || salonServices.length === 0}
+                className="flex-1 py-2.5 bg-brand text-brand-foreground rounded-xl font-semibold hover:bg-brand/90 transition-colors brand-glow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {svcSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                Save Services
+              </button>
+            </div>
           </div>
         </div>
       )}

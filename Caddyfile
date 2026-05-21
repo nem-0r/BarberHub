@@ -1,0 +1,28 @@
+# Reverse proxy + automatic HTTPS for the production stack.
+# Used ONLY by docker-compose.prod.yml (the `caddy` service).
+#
+# Two hostnames, set via .env:
+#   DOMAIN      -> Next.js frontend   (e.g. barberhub.example.com)
+#   API_DOMAIN  -> FastAPI backend    (e.g. api.barberhub.example.com)
+#
+# Caddy obtains and renews Let's Encrypt certs automatically for real
+# domains. The localhost defaults fall back to a local self-signed cert.
+#
+# Why split hosts instead of path-routing on one host: the frontend owns
+# "/" and the API also serves "/health", "/docs", "/openapi.json" — path
+# rules would collide. Subdomains keep cookies and CORS clean.
+# Remember to set NEXT_PUBLIC_API_URL=https://$API_DOMAIN for the frontend.
+
+{$DOMAIN:localhost} {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
+
+{$API_DOMAIN:localhost:8443} {
+	encode zstd gzip
+	# Pass the real client IP through so the rate-limiter keys on the
+	# actual user, not the Caddy container (see app/limiter.py).
+	reverse_proxy app:8000 {
+		header_up X-Real-IP {remote_host}
+	}
+}

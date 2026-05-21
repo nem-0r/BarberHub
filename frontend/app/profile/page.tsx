@@ -2,7 +2,12 @@
 
 import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { useMeQuery, useBookingsForClientQuery, queryKeys } from "@/lib/queries"
+import { formatTimeInSalonTz, formatDateInSalonTz } from "@/lib/datetime"
+import { signOut } from "@/lib/auth"
 import {
   Loader2,
   Calendar,
@@ -27,14 +32,83 @@ const NAV_ITEMS = [
   { icon: Bell, label: "Notifications", id: "notifications" },
 ]
 
+function clearAuthAndRedirect(router: ReturnType<typeof useRouter>) {
+  localStorage.removeItem("token")
+  localStorage.removeItem("user")
+  router.replace("/login")
+}
+
 export default function ProfilePage() {
+  const router = useRouter()
+  const queryClient = useQueryClient()
   const [activeNav, setActiveNav] = useState("appointments")
-  const [user, setUser] = useState<any>(null)
-  const [bookings, setBookings] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
   const [profileForm, setProfileForm] = useState({ full_name: "", phone: "" })
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
+
+  // Auth bootstrap: read once on mount. We only re-render when the underlying
+  // localStorage values matter for query.enabled.
+  const [authState, setAuthState] = useState<{ token: string | null; cachedUser: any | null }>(
+    { token: null, cachedUser: null }
+  )
+
+  useEffect(() => {
+    const token = localStorage.getItem("token")
+    const userStr = localStorage.getItem("user")
+    if (!token || !userStr) {
+      router.replace("/login")
+      return
+    }
+    let parsed: any = null
+    try { parsed = JSON.parse(userStr) } catch { /* corrupt cache → redirect */ }
+    if (!parsed) {
+      clearAuthAndRedirect(router)
+      return
+    }
+    // Cheap role check before any fetch fires.
+    if (parsed.role === "staff" || parsed.role === "owner" || parsed.role === "admin") {
+      router.replace("/partner/dashboard")
+      return
+    }
+    setAuthState({ token, cachedUser: parsed })
+  }, [router])
+
+  const meQuery = useMeQuery(authState.token)
+  const bookingsQuery = useBookingsForClientQuery(authState.cachedUser?.id, authState.token)
+
+  // Single source of truth for "the current user": fresh from server if loaded,
+  // otherwise the localStorage snapshot we bootstrapped with.
+  const user = meQuery.data ?? authState.cachedUser
+
+  // 401 from any of the queries → token is dead, bounce to login.
+  useEffect(() => {
+    const meErr: any = meQuery.error
+    const bookErr: any = bookingsQuery.error
+    if (meErr?.code === "UNAUTHORIZED" || bookErr?.code === "UNAUTHORIZED") {
+      clearAuthAndRedirect(router)
+    }
+  }, [meQuery.error, bookingsQuery.error, router])
+
+  // Server-side role change (client → owner) — re-route after refresh.
+  useEffect(() => {
+    if (meQuery.data) {
+      localStorage.setItem("user", JSON.stringify(meQuery.data))
+      if (meQuery.data.role !== "client") {
+        router.replace("/partner/dashboard")
+      }
+    }
+  }, [meQuery.data, router])
+
+  // Initial form values — set once when user data first arrives, then user drives it.
+  useEffect(() => {
+    if (user && profileForm.full_name === "" && profileForm.phone === "") {
+      setProfileForm({ full_name: user.full_name || "", phone: user.phone || "" })
+    }
+  }, [user, profileForm.full_name, profileForm.phone])
+
+  const bookings = bookingsQuery.data ?? []
+  // Loading: only block first render; subsequent visits hit the cache and show data immediately.
+  const loading = !authState.cachedUser || (bookingsQuery.isLoading && !bookingsQuery.data)
 
   async function handleResetPassword() {
     if (!user?.email) return
@@ -45,45 +119,6 @@ export default function ProfilePage() {
       setSaveStatus({ type: "error", message: err.message || "Failed to send reset link" })
     }
   }
-
-  useEffect(() => {
-    async function loadProfile() {
-      try {
-        const userStr = localStorage.getItem("user")
-        const token = localStorage.getItem("token")
-        if (!userStr || !token) {
-          window.location.href = "/login"
-          return
-        }
-
-        // Always refresh from API for latest role/data
-        let currentUser
-        try {
-          currentUser = await api.getMe(token)
-          localStorage.setItem("user", JSON.stringify(currentUser))
-        } catch {
-          currentUser = JSON.parse(userStr)
-        }
-
-        // Staff and owners have their own workspace — redirect them
-        if (currentUser.role === "staff" || currentUser.role === "owner" || currentUser.role === "admin") {
-          window.location.href = "/partner/dashboard"
-          return
-        }
-
-        setUser(currentUser)
-        setProfileForm({ full_name: currentUser.full_name || "", phone: currentUser.phone || "" })
-
-        const data = await api.getBookingsForClient(currentUser.id, token)
-        setBookings(data)
-      } catch (err) {
-        console.error("Failed to load profile:", err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadProfile()
-  }, [])
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault()
@@ -101,7 +136,8 @@ export default function ProfilePage() {
       const payload: { full_name?: string; phone?: string } = { full_name: trimmedName }
       if (trimmedPhone) payload.phone = trimmedPhone
       const updated = await api.updateMe(payload, token)
-      setUser(updated)
+      // Optimistically replace the cached me query so other pages see the new data.
+      queryClient.setQueryData(queryKeys.me(), updated)
       localStorage.setItem("user", JSON.stringify(updated))
       setSaveStatus({ type: "success", message: "Profile updated successfully!" })
     } catch (err: any) {
@@ -118,7 +154,10 @@ export default function ProfilePage() {
       const token = localStorage.getItem("token")
       if (!token) return
       const localUrl = URL.createObjectURL(file)
-      setUser((prev: any) => prev ? { ...prev, avatar_url: localUrl } : prev)
+      // Optimistic local preview while the background task processes the upload.
+      queryClient.setQueryData(queryKeys.me(), (prev: any) =>
+        prev ? { ...prev, avatar_url: localUrl } : prev,
+      )
       await api.uploadUserAvatar(file, token)
       setSaveStatus({ type: "success", message: "Avatar upload started! It will update in a few moments." })
     } catch (err: any) {
@@ -127,11 +166,7 @@ export default function ProfilePage() {
   }
 
   function handleLogout() {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user")
-    localStorage.removeItem("pending_salon")
-    localStorage.removeItem("pending_email")
-    window.location.href = "/"
+    signOut(queryClient)
   }
 
   if (loading) {
@@ -143,14 +178,14 @@ export default function ProfilePage() {
     )
   }
 
-  const upcoming = bookings.filter(b => b.status === "confirmed" || b.status === "pending")
-  const past = bookings.filter(b => b.status === "completed" || b.status === "cancelled")
+  const upcoming = bookings.filter((b: any) => b.status === "confirmed" || b.status === "pending")
+  const past = bookings.filter((b: any) => b.status === "completed" || b.status === "cancelled")
 
   // Real computed stats — no hardcode
   const totalBookings = bookings.length
   const totalSpent = bookings
-    .filter(b => b.status === "completed")
-    .reduce((sum, b) => sum + parseFloat(b.final_price ?? "0"), 0)
+    .filter((b: any) => b.status === "completed")
+    .reduce((sum: number, b: any) => sum + parseFloat(b.final_price ?? "0"), 0)
   const memberSince = user?.created_at
     ? new Date(user.created_at).getFullYear()
     : "..."
@@ -191,7 +226,7 @@ export default function ProfilePage() {
               <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t border-border-solid">
                 {[
                   { label: "Bookings", value: String(totalBookings) },
-                  { label: "Spent", value: `$${totalSpent.toFixed(0)}` },
+                  { label: "Spent", value: `${isNaN(totalSpent) ? "0" : totalSpent.toFixed(0)} ₸` },
                   { label: "Upcoming", value: String(upcoming.length) },
                 ].map((s) => (
                   <div key={s.label} className="text-center">
@@ -370,7 +405,7 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
-                  {upcoming.map((appt) => (
+                  {upcoming.map((appt: any) => (
                     <div key={appt.id} className="bento-card hover:border-brand/20 transition-all">
                       <div className="flex items-start gap-4">
                         <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-surface-elevated flex items-center justify-center">
@@ -380,24 +415,26 @@ export default function ProfilePage() {
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-display font-bold text-lg text-foreground">
-                                Service #{appt.service_id.substring(0, 8)}
+                                {appt.service_name ?? "Service"}
                               </p>
-                              <p className="text-sm text-muted-foreground capitalize">{appt.status}</p>
+                              <p className="text-sm text-muted-foreground capitalize">
+                                {appt.staff_full_name ? `with ${appt.staff_full_name} · ` : ""}{appt.status}
+                              </p>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-4 mt-3">
                             <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                               <Calendar className="w-3.5 h-3.5" />
-                              {new Date(appt.start_time).toLocaleDateString()}
+                              {formatDateInSalonTz(appt.start_time, appt.salon_timezone)}
                             </span>
                             <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                               <Clock className="w-3.5 h-3.5" />
-                              {new Date(appt.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              {formatTimeInSalonTz(appt.start_time, appt.salon_timezone)}
                             </span>
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="font-display font-bold text-xl text-foreground">${appt.final_price}</p>
+                          <p className="font-display font-bold text-xl text-foreground">{isNaN(parseFloat(appt.final_price)) ? "0" : parseFloat(appt.final_price).toFixed(0)} ₸</p>
                           <p className="text-xs text-muted-foreground">Pay at salon</p>
                         </div>
                       </div>
@@ -431,7 +468,7 @@ export default function ProfilePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {past.map((p, i) => (
+                      {past.map((p: any, i: number) => (
                         <tr
                           key={p.id}
                           className={cn(
@@ -445,7 +482,7 @@ export default function ProfilePage() {
                                 <Scissors className="w-4 h-4 text-muted-foreground" />
                               </div>
                               <span className="text-sm font-medium text-foreground">
-                                Service #{p.service_id.substring(0, 8)}
+                                {p.service_name ?? "Service"}
                               </span>
                             </div>
                           </td>
@@ -458,10 +495,10 @@ export default function ProfilePage() {
                             </span>
                           </td>
                           <td className="px-5 py-4 text-sm text-muted-foreground hidden sm:table-cell">
-                            {new Date(p.start_time).toLocaleDateString()}
+                            {formatDateInSalonTz(p.start_time, p.salon_timezone)}
                           </td>
                           <td className="px-5 py-4 text-right text-sm font-semibold text-foreground">
-                            ${p.final_price}
+                            {isNaN(parseFloat(p.final_price)) ? "0" : parseFloat(p.final_price).toFixed(0)} ₸
                           </td>
                         </tr>
                       ))}

@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useChatContext } from "@/context/chat-context"
+import { getApiBaseUrl } from "@/lib/api"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const API_URL = getApiBaseUrl()
 
 const FAB_SIZE = 56  // w-14 h-14 in px
 const CHAT_W   = 320 // w-80
@@ -54,7 +55,7 @@ function computeChatPos(fabX: number, fabY: number): { x: number; y: number } {
 }
 
 export function FloatingChatWidget() {
-  const { messages, addMessage, open, setOpen, position, setPosition } = useChatContext()
+  const { messages, addMessage, updateLastBotMessage, open, setOpen, position, setPosition } = useChatContext()
   const [input, setInput]   = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -115,11 +116,16 @@ export function FloatingChatWidget() {
       .map((m) => ({ role: m.role, text: m.text }))
 
     addMessage({ role: "user", text })
+    // Placeholder bot message that we'll mutate as chunks arrive
+    addMessage({ role: "bot", text: "" })
     setInput("")
     setLoading(true)
 
+    let gotAnyChunk = false
+    let receivedError = false
+
     try {
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await fetch(`${API_URL}/api/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history }),
@@ -130,15 +136,90 @@ export function FloatingChatWidget() {
         throw new Error(err.detail ?? `HTTP ${res.status}`)
       }
 
-      const data: { reply: string; sources: string[] } = await res.json()
-      addMessage({ role: "bot", text: data.reply, sources: data.sources })
+      if (!res.body) {
+        throw new Error("Streaming not supported")
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      // SSE frames end with "\n\n". Each frame is one or more "data: <json>" lines;
+      // our backend always emits a single data line per event, so we parse that.
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let sep = buffer.indexOf("\n\n")
+        while (sep !== -1) {
+          const frame = buffer.slice(0, sep)
+          buffer = buffer.slice(sep + 2)
+          sep = buffer.indexOf("\n\n")
+
+          // Extract the JSON payload from the "data: " line
+          const dataLine = frame
+            .split("\n")
+            .find((l) => l.startsWith("data: "))
+          if (!dataLine) continue
+
+          let event: { kind: string; text?: string; sources?: string[]; message?: string }
+          try {
+            event = JSON.parse(dataLine.slice(6))
+          } catch {
+            continue
+          }
+
+          if (event.kind === "chunk" && event.text) {
+            gotAnyChunk = true
+            updateLastBotMessage((m) => ({ ...m, text: m.text + (event.text ?? "") }))
+          } else if (event.kind === "sources" && event.sources) {
+            updateLastBotMessage((m) => ({ ...m, sources: event.sources }))
+          } else if (event.kind === "error") {
+            receivedError = true
+            const msg = event.message ?? "Unknown error"
+            if (gotAnyChunk) {
+              // Append to partial reply so the user sees what did arrive
+              updateLastBotMessage((m) => ({
+                ...m,
+                text: `${m.text}\n\n⚠️ ${msg}`,
+                isError: true,
+              }))
+            } else {
+              updateLastBotMessage(() => ({
+                role: "bot",
+                text: `Произошла ошибка: ${msg}. Попробуйте ещё раз.`,
+                isError: true,
+              }))
+            }
+          }
+          // "done" — nothing to do, loop will exit naturally
+        }
+      }
+
+      if (!gotAnyChunk && !receivedError) {
+        // Stream ended cleanly but empty — surface as error
+        updateLastBotMessage(() => ({
+          role: "bot",
+          text: "Пустой ответ от сервера. Попробуйте ещё раз.",
+          isError: true,
+        }))
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Ошибка соединения"
-      addMessage({
-        role: "bot",
-        text: `Произошла ошибка: ${message}. Попробуйте ещё раз.`,
-        isError: true,
-      })
+      if (gotAnyChunk) {
+        updateLastBotMessage((m) => ({
+          ...m,
+          text: `${m.text}\n\n⚠️ ${message}`,
+          isError: true,
+        }))
+      } else {
+        updateLastBotMessage(() => ({
+          role: "bot",
+          text: `Произошла ошибка: ${message}. Попробуйте ещё раз.`,
+          isError: true,
+        }))
+      }
     } finally {
       setLoading(false)
     }
@@ -184,31 +265,35 @@ export function FloatingChatWidget() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-zinc-50">
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
+            {messages.map((msg) => {
+              // Skip the empty streaming placeholder — the loading dots below take its place.
+              if (msg.role === "bot" && msg.text === "" && !msg.isError) return null
+              return (
                 <div
-                  className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-zinc-900 text-white rounded-br-sm"
-                      : msg.isError
-                      ? "bg-red-50 text-red-700 border border-red-200 rounded-bl-sm"
-                      : "bg-white text-zinc-800 shadow-sm border border-zinc-100 rounded-bl-sm"
-                  }`}
+                  key={msg.id}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
-                  {msg.sources && msg.sources.length > 0 && (
-                    <p className="mt-1 text-[10px] text-zinc-400">
-                      📄 {msg.sources.join(", ")}
-                    </p>
-                  )}
+                  <div
+                    className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-zinc-900 text-white rounded-br-sm"
+                        : msg.isError
+                        ? "bg-red-50 text-red-700 border border-red-200 rounded-bl-sm"
+                        : "bg-white text-zinc-800 shadow-sm border border-zinc-100 rounded-bl-sm"
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {msg.sources && msg.sources.length > 0 && (
+                      <p className="mt-1 text-[10px] text-zinc-400">
+                        📄 {msg.sources.join(", ")}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
-            {loading && (
+            {loading && messages[messages.length - 1]?.text === "" && (
               <div className="flex justify-start">
                 <div className="bg-white shadow-sm border border-zinc-100 rounded-2xl rounded-bl-sm px-3 py-2">
                   <div className="flex gap-1 items-center h-4">

@@ -16,6 +16,7 @@ import app.services.models
 import app.staff_services.models  
 import app.schedules.models  
 import app.bookings.models  
+import app.reviews.models  
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -46,7 +47,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -71,11 +72,19 @@ async def run_async_migrations() -> None:
 
     """
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    # Prefer a dedicated direct-connection URL for migrations. If only
+    # DATABASE_URL is set and it points at the transaction pooler, disable
+    # asyncpg's prepared-statement cache so DDL doesn't blow up on pgbouncer.
+    mig_url = settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL
+    configuration["sqlalchemy.url"] = mig_url
+    connect_args = {}
+    if settings.DB_PGBOUNCER and not settings.MIGRATION_DATABASE_URL:
+        connect_args = {"statement_cache_size": 0}
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

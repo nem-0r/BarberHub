@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { PartnerSidebar } from "@/components/partner/partner-sidebar"
 import { ImageUpload } from "@/components/ui/image-upload"
 import { api } from "@/lib/api"
@@ -16,6 +17,7 @@ import {
 } from "lucide-react"
 
 export default function ProfilePage() {
+  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -28,7 +30,7 @@ export default function ProfilePage() {
       try {
         const token = localStorage.getItem("token")
         if (!token) {
-          window.location.href = "/login"
+          router.replace("/login")
           return
         }
 
@@ -105,7 +107,7 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-background">
       <PartnerSidebar />
 
-      <main className="ml-64 p-8">
+      <main className="lg:ml-64 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">
             <h1 className="text-3xl font-display font-bold text-foreground">My Profile</h1>

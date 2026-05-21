@@ -1,6 +1,6 @@
 import uuid
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship, Column
 import sqlalchemy as sa
@@ -18,15 +18,26 @@ class User(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     email: str = Field(sa_column=sa.Column(sa.String(255), unique=True, nullable=False))
-    password_hash: str = Field(sa_column=sa.Column(sa.String(255), nullable=False))
+    # Nullable for OAuth-only accounts (Google login → no local password).
+    password_hash: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(255), nullable=True))
     full_name: str = Field(sa_column=sa.Column(sa.String(100), nullable=False))
-    phone: str = Field(sa_column=sa.Column(sa.String(20), unique=True, nullable=False))
+    # Nullable: Google OAuth does not provide phone; collected later on onboarding.
+    phone: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(20), unique=True, nullable=True))
     role: UserRole = Field(
         sa_column=sa.Column(sa.Enum(UserRole), nullable=False, default=UserRole.client)
     )
     is_verified: bool = Field(default=False)
     avatar_url: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(255), nullable=True))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Google `sub` claim — stable per-user identifier across logins. Used to detect
+    # already-linked accounts on subsequent Google sign-ins.
+    google_sub: Optional[str] = Field(
+        default=None,
+        sa_column=sa.Column(sa.String(255), unique=True, nullable=True, index=True),
+    )
+    created_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, default=sa.func.now()),
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     salons: List["Salon"] = Relationship(
         back_populates="owner",

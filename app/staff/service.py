@@ -20,8 +20,8 @@ def _enrich(staff: Staff, user: Optional[User]) -> StaffRead:
     return data
 
 
-async def get_all_staff(session: AsyncSession) -> List[StaffRead]:
-    result = await session.exec(select(Staff))
+async def get_all_staff(session: AsyncSession, skip: int = 0, limit: int = 50) -> List[StaffRead]:
+    result = await session.exec(select(Staff).offset(skip).limit(limit))
     staff_list = result.all()
     # Bulk-fetch all related users in one query
     user_ids = [s.user_id for s in staff_list if s.user_id]
@@ -123,6 +123,8 @@ async def update_staff(staff_id: uuid.UUID, data: StaffUpdate, session: AsyncSes
         return None
 
     salon = await session.get(Salon, staff.salon_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
     if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to modify this staff member")
 
@@ -141,9 +143,20 @@ async def delete_staff(staff_id: uuid.UUID, session: AsyncSession, current_user:
         return False
 
     salon = await session.get(Salon, staff.salon_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
     if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to delete this staff member")
-        
+
+    # Clean dependent staff↔service links first (FK has no ON DELETE CASCADE,
+    # otherwise deleting a barber who provides any service raises 500). Atomic.
+    from app.staff_services.models import StaffService
+    links = (
+        await session.exec(select(StaffService).where(StaffService.staff_id == staff_id))
+    ).all()
+    for link in links:
+        await session.delete(link)
+
     await session.delete(staff)
     await session.commit()
     return True

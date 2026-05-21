@@ -9,18 +9,22 @@ import app.bookings.service as svc
 from app.dependencies import get_current_user, RoleChecker
 from app.users.models import UserRole, User
 from app.salons.models import Salon
+from app.pagination import pagination_params
+from app.limiter import limiter
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
 admin_only = RoleChecker([UserRole.admin])
 staff_owner_admin = RoleChecker([UserRole.staff, UserRole.owner, UserRole.admin])
-staff_owner = RoleChecker([UserRole.staff, UserRole.owner])
 owner_admin = RoleChecker([UserRole.owner, UserRole.admin])
 
 
 @router.get("/", response_model=List[BookingRead], dependencies=[Depends(admin_only)])
-async def list_bookings(session: AsyncSession = Depends(get_session)):
-    return await svc.get_all_bookings(session)
+async def list_bookings(
+    session: AsyncSession = Depends(get_session),
+    pagination: dict = Depends(pagination_params),
+):
+    return await svc.get_all_bookings(session, **pagination)
 
 
 @router.get("/client/{client_id}", response_model=List[BookingRead])
@@ -62,15 +66,32 @@ async def list_for_salon(
 
 
 @router.get("/{booking_id}", response_model=BookingRead)
-async def get_booking(booking_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_booking(
+    booking_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     booking = await svc.get_booking_by_id(booking_id, session)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    # Allow: the client who owns it, admin, or staff/owner of the salon
+    if str(current_user.id) != str(booking.client_id) and current_user.role != UserRole.admin:
+        from app.staff.models import Staff
+        staff = await session.get(Staff, booking.staff_id)
+        if not staff:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        salon = await session.get(Salon, staff.salon_id)
+        is_staff = current_user.role == UserRole.staff and str(staff.user_id) == str(current_user.id)
+        is_owner = current_user.role == UserRole.owner and salon and str(salon.owner_id) == str(current_user.id)
+        if not is_staff and not is_owner:
+            raise HTTPException(status_code=403, detail="Not authorized to view this booking")
     return booking
 
 
 @router.post("/", response_model=BookingRead, status_code=201)
+@limiter.limit("10/hour;3/minute")
 async def create_booking(
+    request: Request,
     data: BookingCreate,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -81,7 +102,7 @@ async def create_booking(
     return await svc.create_booking(data, session)
 
 
-@router.patch("/{booking_id}/status", response_model=BookingRead, dependencies=[Depends(staff_owner)])
+@router.patch("/{booking_id}/status", response_model=BookingRead, dependencies=[Depends(staff_owner_admin)])
 async def update_status(
     booking_id: uuid.UUID,
     data: BookingStatusUpdate,

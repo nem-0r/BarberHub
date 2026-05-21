@@ -7,9 +7,12 @@ from app.salons.models import Salon
 from app.salons.schemas import SalonCreate, SalonUpdate, SalonRead
 from app.users.models import User, UserRole
 from fastapi import HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.bookings.models import Booking, BookingStatus
 from app.staff.models import Staff
+
+
+SALON_SORTABLE_FIELDS = {"name", "city", "rating", "review_count", "created_at"}
 
 
 def _to_salon_read(salon: Salon) -> SalonRead:
@@ -22,20 +25,22 @@ async def get_all_salons(
     search: Optional[str] = None,
     sort_by: Optional[str] = "name",
     order: str = "asc",
+    skip: int = 0,
+    limit: int = 50,
 ) -> List[SalonRead]:
     statement = select(Salon)
     if search:
         statement = statement.where(Salon.name.ilike(f"%{search}%"))
 
     # Sorting
-    if sort_by and hasattr(Salon, sort_by):
+    if sort_by and sort_by in SALON_SORTABLE_FIELDS:
         attr = getattr(Salon, sort_by)
         if order == "desc":
             statement = statement.order_by(attr.desc())
         else:
             statement = statement.order_by(attr.asc())
 
-    result = await session.exec(statement)
+    result = await session.exec(statement.offset(skip).limit(limit))
     salons = result.all()
     return [_to_salon_read(s) for s in salons]
 
@@ -49,71 +54,90 @@ async def get_salon_by_id(salon_id: uuid.UUID, session: AsyncSession) -> Optiona
 
 def calculate_salon_status(salon: Salon):
     """
-    Checks if the salon is currently open based on operating_hours and timezone.
-    For now, returns default values if operating_hours is missing.
+    Checks if the salon is currently open based on operating_hours and salon timezone.
+    operating_hours format: {"0": ["09:00", "21:00"], ...}  (0=Monday … 6=Sunday)
     """
     if not salon.operating_hours:
-        return True, "21:00" # Fallback
-        
-    # TODO: Implement real timezone-aware logic here
-    # 0=Monday, 6=Sunday
-    now = datetime.utcnow() # In production, use salon's timezone
+        return True, "21:00"
+
+    # Use the salon's configured timezone (zoneinfo is stdlib in Python 3.9+).
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(salon.timezone or "UTC")
+        now = datetime.now(tz)
+    except Exception:
+        now = datetime.now(timezone.utc)
+
     day_of_week = str(now.weekday())
-    
     hours = salon.operating_hours.get(day_of_week)
     if not hours or not isinstance(hours, list) or len(hours) < 2:
         return False, None
-        
+
     open_t = datetime.strptime(hours[0], "%H:%M").time()
     close_t = datetime.strptime(hours[1], "%H:%M").time()
     current_t = now.time()
-    
+
     is_open = open_t <= current_t <= close_t
     return is_open, hours[1]
 
 
 async def get_salon_stats(salon_id: uuid.UUID, session: AsyncSession):
-    # Today's bookings
+    # Use naive UTC datetimes — Booking.start_time is TIMESTAMP WITHOUT TIME ZONE.
+    # asyncpg rejects tz-aware vs tz-naive comparisons and drops the connection.
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
-    
-    # Query bookings for this salon (via staff)
-    booking_stmt = select(Booking).join(Staff).where(
-        Staff.salon_id == salon_id,
-        Booking.start_time >= today_start,
-        Booking.start_time < today_end,
-        Booking.status != BookingStatus.cancelled
-    )
-    result = await session.exec(booking_stmt)
-    today_bookings = result.all()
-    
-    # Weekly revenue
     week_start = today_start - timedelta(days=today_start.weekday())
-    revenue_stmt = select(sa.func.sum(Booking.final_price)).join(Staff).where(
-        Staff.salon_id == salon_id,
-        Booking.start_time >= week_start,
-        Booking.status == BookingStatus.completed
-    )
-    revenue_res = await session.exec(revenue_stmt)
-    total_revenue_val = revenue_res.first()
-    total_revenue = total_revenue_val if total_revenue_val is not None else 0
-    
-    # Active staff
+
+    # Both counters come from the same bookings/staff join — compute them in a single query
+    # with conditional aggregates so we only pay for one round-trip.
+    booking_stmt = select(
+        sa.func.count(
+            sa.case(
+                (
+                    sa.and_(
+                        Booking.start_time >= today_start,
+                        Booking.start_time < today_end,
+                        Booking.status != BookingStatus.cancelled,
+                    ),
+                    Booking.id,
+                )
+            )
+        ).label("today_bookings"),
+        sa.func.coalesce(
+            sa.func.sum(
+                sa.case(
+                    (
+                        sa.and_(
+                            Booking.start_time >= week_start,
+                            Booking.status == BookingStatus.completed,
+                        ),
+                        Booking.final_price,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("weekly_revenue"),
+    ).join(Staff, Staff.id == Booking.staff_id).where(Staff.salon_id == salon_id)
+
+    booking_row = (await session.exec(booking_stmt)).first()
+    today_bookings = int(booking_row[0] or 0) if booking_row else 0
+    total_revenue = float(booking_row[1] or 0) if booking_row else 0.0
+
+    # Active staff + salon lookup can stay separate; they hit different tables.
     staff_stmt = select(sa.func.count(Staff.id)).where(
         Staff.salon_id == salon_id,
-        Staff.is_active == True
+        Staff.is_active == True,
     )
-    staff_res = await session.exec(staff_stmt)
-    active_staff_val = staff_res.first()
-    active_staff = active_staff_val if active_staff_val is not None else 0
-    
+    active_staff = (await session.exec(staff_stmt)).first() or 0
+
     salon = await session.get(Salon, salon_id)
-    
+
     return {
-        "today_bookings": len(today_bookings),
-        "weekly_revenue": float(total_revenue),
+        "today_bookings": today_bookings,
+        "weekly_revenue": total_revenue,
         "active_staff": active_staff,
-        "avg_rating": (salon.rating if salon else 0.0) or 0.0
+        "avg_rating": (salon.rating if salon else 0.0) or 0.0,
     }
 
 

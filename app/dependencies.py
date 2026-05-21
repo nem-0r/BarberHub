@@ -6,7 +6,12 @@ from database import get_session
 from app.users.auth import decode_access_token
 from app.users.service import get_user_by_id
 from app.users.models import User, UserRole
-from app.users.redis import is_token_blocked
+from app.users.redis import (
+    is_token_blocked,
+    get_cached_user,
+    cache_user,
+    build_user_from_cache,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
 
@@ -20,7 +25,16 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
-    
+
+    # A refresh token must never authorize a normal request — it's only valid
+    # at POST /users/refresh. (Tokens issued before the type claim existed have
+    # no "type" and are treated as access for backward compatibility.)
+    if payload.get("type") == "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cannot use a refresh token to access this resource",
+        )
+
     # Check blocklist
     jti = payload.get("jti") # We should add jti to token creation
     if jti and await is_token_blocked(jti):
@@ -35,11 +49,20 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
         )
-    
-    user = await get_user_by_id(uuid.UUID(user_id), session)
+
+    user_uuid = uuid.UUID(user_id)
+
+    # Fast path: Redis-cached user (TTL 60s). Avoids a DB SELECT on every authorized
+    # request. Cache is invalidated on logout, update, verify, and password reset.
+    cached = await get_cached_user(user_uuid)
+    if cached is not None:
+        return build_user_from_cache(cached)
+
+    user = await get_user_by_id(user_uuid, session)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    await cache_user(user)
     return user
 
 class RoleChecker:
