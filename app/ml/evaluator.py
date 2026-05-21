@@ -1,7 +1,11 @@
-import joblib
-import pandas as pd
 from pathlib import Path
 from typing import List
+
+# joblib + pandas + the sklearn model they pull at load time add ~80-100 MB
+# RSS — too much to pay at idle on Render Free (512 MB total). Both modules
+# are now imported lazily inside _load() / predict(), so the first
+# /ml/evaluate-barber request takes ~500ms longer but the API can boot inside
+# the memory budget.
 
 _ML_DIR    = Path(__file__).parent.parent.parent / "ml"
 MODEL_PATH = _ML_DIR / "barber_model.pkl"
@@ -96,6 +100,7 @@ def _load():
                 f"Model not found at {MODEL_PATH}. "
                 "Run 'python3 ml/train.py' first to generate it."
             )
+        import joblib  # lazy — see module-top comment for the RAM rationale
         _model = joblib.load(MODEL_PATH)
     return _model
 
@@ -154,6 +159,7 @@ def predict(years_exp_cat: str, skills: List[str], education_count: int) -> dict
         }
 
     # ── ML prediction ─────────────────────────────────────────────────────────
+    import pandas as pd  # lazy — ~70 MB at import time, see module-top comment
     X = pd.DataFrame([[
         exp_num, skills_score, edu_score,
         basic_c, adv_c, expert_c, total_c, soft_c, soft_score,

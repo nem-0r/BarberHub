@@ -185,7 +185,13 @@ async def health():
 
     Returns 503 if Postgres or Redis is unreachable so the platform stops
     routing traffic to a broken instance instead of serving 500s.
+
+    Each probe has a hard 3s deadline. Without it, a paused Supabase free
+    project (which auto-pauses after 7 days idle) holds the TCP connect open
+    for ~30s — long enough that Render's platform-level health timeout fires
+    and the container is killed in a deploy loop.
     """
+    import asyncio as _asyncio
     from sqlalchemy import text
     from database import engine
     from app.users.redis import redis_client
@@ -193,15 +199,24 @@ async def health():
     checks = {"database": "ok", "redis": "ok"}
     healthy = True
 
-    try:
+    async def _check_db():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
+
+    try:
+        await _asyncio.wait_for(_check_db(), timeout=3.0)
+    except _asyncio.TimeoutError:
+        checks["database"] = "error: timeout"
+        healthy = False
     except Exception as exc:
         checks["database"] = f"error: {type(exc).__name__}"
         healthy = False
 
     try:
-        await redis_client.ping()
+        await _asyncio.wait_for(redis_client.ping(), timeout=3.0)
+    except _asyncio.TimeoutError:
+        checks["redis"] = "error: timeout"
+        healthy = False
     except Exception as exc:
         checks["redis"] = f"error: {type(exc).__name__}"
         healthy = False

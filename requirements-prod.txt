@@ -45,6 +45,12 @@ apscheduler>=3.10,<4
 # Gemini embeddings + LLM (rotator)
 google-generativeai>=0.8.0,<1
 
+# Document parsers — used at boot by build_index.py to ingest rag_core/data/
+# (Platform_Rules.pdf, Haircut_Guide.docx). Without these the first prod boot
+# fails on the RAG-index build step.
+PyPDF2
+python-docx
+
 # ML inference for /ml/evaluate-barber (joblib-pickled sklearn model)
 scikit-learn
 pandas

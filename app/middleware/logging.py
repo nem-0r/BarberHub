@@ -3,7 +3,6 @@ import time
 import logging
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from elasticsearch import Elasticsearch
 from datetime import datetime
 
 from config import settings
@@ -11,16 +10,18 @@ from config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("custom_logging")
 
+# Import elasticsearch ONLY when enabled — the prod requirements-prod.txt drops
+# the elasticsearch package entirely, so a top-level import would crash boot on
+# Render/Fly free tiers. docker-compose dev keeps ELASTIC_ENABLED=True and the
+# import succeeds because the dev image installs elasticsearch.
+es = None
 if settings.ELASTIC_ENABLED:
     try:
+        from elasticsearch import Elasticsearch  # type: ignore[import-not-found]
         es = Elasticsearch([settings.ELASTIC_URL])
     except Exception as e:
         logger.error(f"Could not connect to Elasticsearch: {e}")
         es = None
-else:
-    # Free-tier deploys skip ES entirely — `docker compose up` still uses ES
-    # because docker-compose.yml leaves ELASTIC_ENABLED at the default True.
-    es = None
 
 
 def _send_to_es(log_data: dict) -> None:

@@ -55,7 +55,8 @@ services:
       - key: DATABASE_URL
         sync: false   # pooler URL: postgresql+asyncpg://...:6543/postgres
       - key: MIGRATION_DATABASE_URL
-        sync: false   # direct URL: postgresql+psycopg2://...:5432/postgres
+        sync: false   # direct URL (port 5432, NOT pooler), with +asyncpg
+                      # driver — alembic env.py uses async_engine_from_config.
       - key: SECRET_KEY
         generateValue: true   # Render generates a strong random value
       - key: SUPABASE_URL

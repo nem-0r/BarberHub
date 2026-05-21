@@ -236,7 +236,17 @@ def _pg_query_db(query: str, strategy: str, top_k: int) -> list[dict]:
                 f"Collection '{strategy}' is empty. Run build_index.py first."
             )
 
-        qvec = _vec_literal(embed_query(query))
+        qvec_raw = embed_query(query)
+        # Same dim check as the ingest path — without it, a settings /
+        # provider / migration mismatch surfaces as a generic pgvector error
+        # instead of the clear "dim X != Y" message.
+        if len(qvec_raw) != settings.EMBEDDING_DIM:
+            raise ValueError(
+                f"embed_query() returned dim {len(qvec_raw)} != "
+                f"{settings.EMBEDDING_DIM} (settings.EMBEDDING_DIM). "
+                "Embedder provider and pgvector column width are out of sync."
+            )
+        qvec = _vec_literal(qvec_raw)
         # 1 - cosine_distance == cosine similarity (embeddings normalized).
         rows = conn.execute(
             sql(
