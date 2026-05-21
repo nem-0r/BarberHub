@@ -186,7 +186,8 @@ export function FloatingChatWidget() {
                 isError: true,
               }))
             } else {
-              updateLastBotMessage(() => ({
+              updateLastBotMessage((m) => ({
+                ...m,
                 role: "bot",
                 text: `Произошла ошибка: ${msg}. Попробуйте ещё раз.`,
                 isError: true,
@@ -199,7 +200,8 @@ export function FloatingChatWidget() {
 
       if (!gotAnyChunk && !receivedError) {
         // Stream ended cleanly but empty — surface as error
-        updateLastBotMessage(() => ({
+        updateLastBotMessage((m) => ({
+          ...m,
           role: "bot",
           text: "Пустой ответ от сервера. Попробуйте ещё раз.",
           isError: true,
@@ -214,7 +216,8 @@ export function FloatingChatWidget() {
           isError: true,
         }))
       } else {
-        updateLastBotMessage(() => ({
+        updateLastBotMessage((m) => ({
+          ...m,
           role: "bot",
           text: `Произошла ошибка: ${message}. Попробуйте ещё раз.`,
           isError: true,
