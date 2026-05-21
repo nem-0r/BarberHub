@@ -10,6 +10,7 @@ import {
 import Link from "next/link"
 import { Navbar } from "@/components/barberhub/navbar"
 import { cn } from "@/lib/utils"
+import { api } from "@/lib/api"
 import {
   RadarChart, PolarGrid, PolarAngleAxis,
   Radar, ResponsiveContainer,
