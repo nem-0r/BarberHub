@@ -88,25 +88,84 @@ class GeminiEmbedder:
     need for a pet-project demo.
     """
 
-    # google-generativeai 0.8.x has spotty support for `content=<list>` in
-    # `embed_content` (works in some patch versions, returns a single combined
-    # vector in others — silently breaks downstream shape assertions). The
-    # deprecated SDK's official batch entry point is `batch_embed_contents`
-    # but that adds another failure surface. Looping single-text is slower
-    # (~50ms × N HTTPs) but predictable for a 20-30 chunk corpus at boot.
     _MAX_ATTEMPTS = 4
+
+    # Google quietly removes/relocates embedding models in v1beta (which the
+    # deprecated `google-generativeai` SDK is pinned to). What works today may
+    # 404 tomorrow, e.g. `models/text-embedding-004` started 404-ing in v1beta
+    # in 2026-05. We probe a candidate list at init and use the first model
+    # that responds with a vector of the right dimensionality.
+    # Each entry: (model_name, extra_kwargs_dict).
+    #
+    # Discovered 2026-05-21 via `scripts/list_gemini_models.py` on a key with
+    # access to free-tier embedding endpoints — these three are the only
+    # `embedContent`-capable models visible. All are native-3072 Matryoshka
+    # models; we request 768 via `output_dimensionality` to match the
+    # pgvector(768) column width.
+    _EMBED_MODEL_CANDIDATES: list[tuple[str, dict]] = [
+        ("models/gemini-embedding-2",         {"output_dimensionality": 768}),  # stable v2
+        ("models/gemini-embedding-001",       {"output_dimensionality": 768}),  # stable v1
+        ("models/gemini-embedding-2-preview", {"output_dimensionality": 768}),  # preview v2
+    ]
 
     def __init__(self) -> None:
         from config import settings
 
-        self._model = settings.GEMINI_EMBED_MODEL
         self._dim = settings.EMBEDDING_DIM
         self._keys = self._load_keys()
         self._key_idx = 0
         self._configure(self._keys[0])
+
+        # User's configured model wins if it works; otherwise we fall through
+        # the candidate list.
+        configured = (settings.GEMINI_EMBED_MODEL or "").strip()
+        candidates: list[tuple[str, dict]] = []
+        if configured:
+            candidates.append((configured, {}))
+        for c in self._EMBED_MODEL_CANDIDATES:
+            if c[0] != configured:
+                candidates.append(c)
+
+        self._model, self._extra_kwargs = self._probe_models(candidates)
         print(
             f"[Embedder] Gemini {self._model} ready "
             f"({self._dim}-dim, {len(self._keys)} key(s))."
+        )
+
+    def _probe_models(self, candidates: list[tuple[str, dict]]) -> tuple[str, dict]:
+        """Send a 1-token probe to each candidate; return the first that
+        returns a vector matching settings.EMBEDDING_DIM. Logs each attempt
+        so the failure mode is visible in Render Logs."""
+        import google.generativeai as genai
+
+        print(f"[Embedder] Probing {len(candidates)} embedding model candidate(s) ...")
+        last_err: Exception | None = None
+        for cand_name, extra in candidates:
+            try:
+                resp = genai.embed_content(
+                    model=cand_name,
+                    content="probe",
+                    task_type="retrieval_document",
+                    **extra,
+                )
+                vec = resp.get("embedding") if isinstance(resp, dict) else None
+                if isinstance(vec, list) and len(vec) == self._dim:
+                    print(f"  [Embedder] ✓ {cand_name} ({len(vec)}-dim)")
+                    return cand_name, extra
+                got_len = len(vec) if isinstance(vec, list) else type(vec).__name__
+                print(
+                    f"  [Embedder] ? {cand_name} — dim mismatch "
+                    f"(got {got_len}, expected {self._dim})"
+                )
+            except Exception as exc:
+                last_err = exc
+                msg = str(exc)
+                print(f"  [Embedder] ✗ {cand_name} — {msg[:140]}")
+        raise RuntimeError(
+            "No working Gemini embedding model found. Tried: "
+            + ", ".join(c[0] for c in candidates)
+            + f". Last error: {last_err}. "
+            "Consider migrating to the google-genai SDK (v1 endpoint)."
         )
 
     @property
@@ -160,6 +219,7 @@ class GeminiEmbedder:
                     model=self._model,
                     content=t,
                     task_type="retrieval_document",
+                    **self._extra_kwargs,
                 )
             )
             vec = resp["embedding"]
@@ -186,6 +246,7 @@ class GeminiEmbedder:
                 model=self._model,
                 content=query,
                 task_type="retrieval_query",
+                **self._extra_kwargs,
             )
         )
         return list(self._l2_normalize(resp["embedding"]))

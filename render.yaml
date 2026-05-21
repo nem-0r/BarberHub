@@ -32,7 +32,7 @@ services:
       - key: EMBEDDING_DIM
         value: "768"
       - key: GEMINI_EMBED_MODEL
-        value: "models/text-embedding-004"
+        value: "models/gemini-embedding-2"
       - key: WEB_CONCURRENCY
         value: "1"
 

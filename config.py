@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     #                          pgvector column of the same width.
     EMBEDDER_PROVIDER: str = "sentence_transformer"
     EMBEDDING_DIM: int = 1024
-    GEMINI_EMBED_MODEL: str = "models/text-embedding-004"
+    GEMINI_EMBED_MODEL: str = "models/gemini-embedding-2"
 
     # --- Redis ---
     # Local dev: HOST + PORT, 4 separate DBs per component.
