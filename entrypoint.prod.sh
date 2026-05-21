@@ -64,12 +64,24 @@ except Exception:
     print('1')
 ")
 if [ "${RAG_FORCE_REINDEX:-0}" = "1" ] || [ "$NEED_INDEX" = "1" ]; then
-    echo "[prod] Building RAG index..."
-    # Don't crash the container on a transient Gemini 429 — `set -e` would
-    # otherwise abort boot before uvicorn starts, looping the deploy. If the
-    # index build fails, /chat returns 503 until the next deploy retries.
-    python3 -m rag_core.ingest.build_index || \
-        echo "[prod] RAG index build failed — chat will 503 until the next boot retries."
+    echo "[prod] ============================================================"
+    echo "[prod] Building RAG index (output streamed below, errors at bottom)"
+    echo "[prod] ============================================================"
+    # 2>&1 ensures the traceback lands next to the "build failed" marker in
+    # Render logs (otherwise stderr and stdout can interleave or get split).
+    # set -e is already in effect — but build_index is wrapped in `|| true`
+    # so a transient Gemini 429 doesn't loop the deploy.
+    if python3 -m rag_core.ingest.build_index 2>&1; then
+        echo "[prod] ============================================================"
+        echo "[prod] RAG index build succeeded."
+        echo "[prod] ============================================================"
+    else
+        echo "[prod] ============================================================"
+        echo "[prod] RAG index build FAILED — see traceback above."
+        echo "[prod] /chat will return canned 'no context' replies until the"
+        echo "[prod] next deploy retries (set RAG_FORCE_REINDEX=1 to force)."
+        echo "[prod] ============================================================"
+    fi
 else
     echo "[prod] RAG index already populated — skipping."
 fi

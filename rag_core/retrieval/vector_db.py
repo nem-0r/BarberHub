@@ -156,12 +156,18 @@ def _get_pg_engine():
     asyncpg engine here would mean "event loop already running". A tiny
     separate psycopg2 pool keeps the two worlds isolated; RAG queries are rare
     and lru_cached, so 2 connections are plenty.
+
+    Prefers MIGRATION_DATABASE_URL (direct port 5432) over DATABASE_URL
+    (pooler 6543 in transaction mode). psycopg2 + pgbouncer transaction mode
+    breaks on `INSERT ... ON CONFLICT` batches and long transactions used by
+    build_index. Direct connection sidesteps the pooler entirely.
     """
     global _pg_engine
     if _pg_engine is None:
         from sqlalchemy import create_engine
 
-        sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+        raw_url = settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL
+        sync_url = raw_url.replace("+asyncpg", "+psycopg2")
         _pg_engine = create_engine(
             sync_url,
             pool_size=2,
@@ -184,6 +190,14 @@ def _pg_index_chunks(chunks: list[Chunk], strategy: str) -> None:
     print(f"  [pgvector] Embedding {len(chunks)} chunks (strategy={strategy})...")
     texts = [c.text for c in chunks]
     vectors = embed(texts)
+
+    if len(vectors) != len(chunks):
+        # Defensive — `zip` would silently drop the tail. Better to surface
+        # the mismatch loudly so we know the embedder is misbehaving.
+        raise RuntimeError(
+            f"embed() returned {len(vectors)} vectors for {len(chunks)} chunks "
+            "— refusing to upsert truncated data."
+        )
 
     expected_dim = settings.EMBEDDING_DIM
     rows = []

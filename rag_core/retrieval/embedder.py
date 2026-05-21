@@ -88,9 +88,12 @@ class GeminiEmbedder:
     need for a pet-project demo.
     """
 
-    # Gemini's batch limit is 100. We use 50 to leave headroom for transient
-    # 5xx batches that the SDK splits into individual retries.
-    _BATCH_SIZE = 50
+    # google-generativeai 0.8.x has spotty support for `content=<list>` in
+    # `embed_content` (works in some patch versions, returns a single combined
+    # vector in others — silently breaks downstream shape assertions). The
+    # deprecated SDK's official batch entry point is `batch_embed_contents`
+    # but that adds another failure surface. Looping single-text is slower
+    # (~50ms × N HTTPs) but predictable for a 20-30 chunk corpus at boot.
     _MAX_ATTEMPTS = 4
 
     def __init__(self) -> None:
@@ -151,22 +154,29 @@ class GeminiEmbedder:
         import google.generativeai as genai
 
         out: list[list[float]] = []
-        for i in range(0, len(texts), self._BATCH_SIZE):
-            chunk = texts[i : i + self._BATCH_SIZE]
+        for idx, text in enumerate(texts):
             resp = self._call_with_retry(
-                lambda: genai.embed_content(
+                lambda t=text: genai.embed_content(
                     model=self._model,
-                    content=chunk,
+                    content=t,
                     task_type="retrieval_document",
                 )
             )
-            # SDK returns {"embedding": [[...], [...]]} for a list, or
-            # {"embedding": [...]} for a single string. Normalize either shape.
-            embs = resp["embedding"]
-            if embs and isinstance(embs[0], (int, float)):
-                embs = [embs]
-            out.extend(embs)
-        return [list(self._l2_normalize(v)) for v in out]
+            vec = resp["embedding"]
+            if not isinstance(vec, list) or not vec or not isinstance(vec[0], (int, float)):
+                raise RuntimeError(
+                    f"GeminiEmbedder: unexpected embed_content response shape "
+                    f"for text #{idx} (got type={type(vec).__name__}). "
+                    f"Response keys: {list(resp.keys()) if isinstance(resp, dict) else resp!r}"
+                )
+            if len(vec) != self._dim:
+                raise RuntimeError(
+                    f"GeminiEmbedder: model returned dim {len(vec)} != "
+                    f"expected {self._dim} (text #{idx}). "
+                    "Check GEMINI_EMBED_MODEL and EMBEDDING_DIM alignment."
+                )
+            out.append(list(self._l2_normalize(vec)))
+        return out
 
     def embed_query(self, query: str) -> list[float]:
         import google.generativeai as genai
