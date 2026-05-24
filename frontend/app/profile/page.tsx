@@ -46,8 +46,6 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
-  // Auth bootstrap: read once on mount. We only re-render when the underlying
-  // localStorage values matter for query.enabled.
   const [authState, setAuthState] = useState<{ token: string | null; cachedUser: any | null }>(
     { token: null, cachedUser: null }
   )
@@ -65,7 +63,6 @@ export default function ProfilePage() {
       clearAuthAndRedirect(router)
       return
     }
-    // Cheap role check before any fetch fires.
     if (parsed.role === "staff" || parsed.role === "owner" || parsed.role === "admin") {
       router.replace("/partner/dashboard")
       return
@@ -76,11 +73,8 @@ export default function ProfilePage() {
   const meQuery = useMeQuery(authState.token)
   const bookingsQuery = useBookingsForClientQuery(authState.cachedUser?.id, authState.token)
 
-  // Single source of truth for "the current user": fresh from server if loaded,
-  // otherwise the localStorage snapshot we bootstrapped with.
   const user = meQuery.data ?? authState.cachedUser
 
-  // 401 from any of the queries → token is dead, bounce to login.
   useEffect(() => {
     const meErr: any = meQuery.error
     const bookErr: any = bookingsQuery.error
@@ -89,7 +83,6 @@ export default function ProfilePage() {
     }
   }, [meQuery.error, bookingsQuery.error, router])
 
-  // Server-side role change (client → owner) — re-route after refresh.
   useEffect(() => {
     if (meQuery.data) {
       localStorage.setItem("user", JSON.stringify(meQuery.data))
@@ -99,7 +92,6 @@ export default function ProfilePage() {
     }
   }, [meQuery.data, router])
 
-  // Initial form values — set once when user data first arrives, then user drives it.
   useEffect(() => {
     if (user && profileForm.full_name === "" && profileForm.phone === "") {
       setProfileForm({ full_name: user.full_name || "", phone: user.phone || "" })
@@ -107,7 +99,6 @@ export default function ProfilePage() {
   }, [user, profileForm.full_name, profileForm.phone])
 
   const bookings = bookingsQuery.data ?? []
-  // Loading: only block first render; subsequent visits hit the cache and show data immediately.
   const loading = !authState.cachedUser || (bookingsQuery.isLoading && !bookingsQuery.data)
 
   async function handleResetPassword() {
@@ -136,7 +127,6 @@ export default function ProfilePage() {
       const payload: { full_name?: string; phone?: string } = { full_name: trimmedName }
       if (trimmedPhone) payload.phone = trimmedPhone
       const updated = await api.updateMe(payload, token)
-      // Optimistically replace the cached me query so other pages see the new data.
       queryClient.setQueryData(queryKeys.me(), updated)
       localStorage.setItem("user", JSON.stringify(updated))
       setSaveStatus({ type: "success", message: "Profile updated successfully!" })
@@ -154,7 +144,6 @@ export default function ProfilePage() {
       const token = localStorage.getItem("token")
       if (!token) return
       const localUrl = URL.createObjectURL(file)
-      // Optimistic local preview while the background task processes the upload.
       queryClient.setQueryData(queryKeys.me(), (prev: any) =>
         prev ? { ...prev, avatar_url: localUrl } : prev,
       )
@@ -181,7 +170,6 @@ export default function ProfilePage() {
   const upcoming = bookings.filter((b: any) => b.status === "confirmed" || b.status === "pending")
   const past = bookings.filter((b: any) => b.status === "completed" || b.status === "cancelled")
 
-  // Real computed stats — no hardcode
   const totalBookings = bookings.length
   const totalSpent = bookings
     .filter((b: any) => b.status === "completed")
@@ -200,7 +188,6 @@ export default function ProfilePage() {
 
       <div className="max-w-7xl mx-auto px-6 pt-24 pb-16">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Sidebar */}
           <aside className="lg:w-72 flex-shrink-0">
             {/* Profile Card */}
             <div className="bento-card mb-4">
@@ -222,7 +209,6 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Real stats */}
               <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t border-border-solid">
                 {[
                   { label: "Bookings", value: String(totalBookings) },
@@ -267,7 +253,6 @@ export default function ProfilePage() {
             </nav>
           </aside>
 
-          {/* Main Content */}
           <main className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-7">
               <h1 className="font-display font-bold text-2xl text-foreground">
@@ -382,7 +367,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Upcoming Appointments */}
             {activeNav === "appointments" && (<><section className="mb-8">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mb-4">
                 Upcoming ({upcoming.length})
@@ -444,7 +428,6 @@ export default function ProfilePage() {
               )}
             </section>
 
-            {/* Past Appointments */}
             <section>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mb-4">
                 History ({past.length})

@@ -6,9 +6,7 @@ from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class Schedule(SQLModel, table=True):
     __tablename__ = "schedules"
-    __table_args__ = (
-        UniqueConstraint("staff_id", "day_of_week", name="uq_staff_day"),
-    )
+    __table_args__ = (UniqueConstraint("staff_id", "day_of_week", name="uq_staff_day"),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     staff_id: uuid.UUID = Field(foreign_key="staff.id", nullable=False)

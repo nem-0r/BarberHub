@@ -13,7 +13,6 @@ import {
 import { api, CITIES } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-// Filter out "All Cities" for the selection
 const SELECTABLE_CITIES = CITIES.filter(c => c !== "All Cities")
 
 interface OnboardingWizardProps {
@@ -26,7 +25,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Step 1: Basic info — pre-filled from localStorage if available
   const [salonData, setSalonData] = useState(() => {
     if (typeof window !== "undefined") {
       const raw = localStorage.getItem("pending_salon")
@@ -45,7 +43,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
     return { name: "", address: "", city: "Almaty", description: "" }
   })
 
-  // Step 2: Operating hours (always editable)
   const [operatingHours, setOperatingHours] = useState<Record<string, string[]>>({
     "0": ["09:00", "21:00"],
     "1": ["09:00", "21:00"],
@@ -63,7 +60,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
       const token = localStorage.getItem("token")
       if (!token) throw new Error("Authentication required. Please log in again.")
 
-      // Re-check verification status before attempting creation
       let currentUser: any = null
       try {
         currentUser = await api.getMe(token)
@@ -78,7 +74,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         return
       }
 
-      // Create salon with all data (basic info + operating hours) in one call
       await api.createSalon({
         name: salonData.name,
         address: salonData.address,
@@ -88,7 +83,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         operating_hours: operatingHours,
       }, token)
 
-      // Clear pending salon data from registration flow (localStorage)
       localStorage.removeItem("pending_salon")
       localStorage.removeItem("pending_email")
 
@@ -97,10 +91,8 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
       const msg: string = typeof err.message === "string" ? err.message : String(err)
       console.error("[Wizard] Salon creation error:", msg, err)
 
-      // Already user-friendly
       if (msg.startsWith("⚠️")) { setError(msg); return }
 
-      // Salon already exists
       if (msg.toLowerCase().includes("already") || msg.includes("409")) {
         localStorage.removeItem("pending_salon")
         localStorage.removeItem("pending_email")
@@ -108,19 +100,16 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         return
       }
 
-      // 403 / not verified
       if (msg.includes("403") || msg.toLowerCase().includes("not verified") || msg.toLowerCase().includes("verified")) {
         setError("⚠️ Your email is not verified yet. Please check your inbox and click the verification link, then try again.")
         return
       }
 
-      // Network / fetch error
       if (msg.toLowerCase().includes("failed to fetch")) {
         setError("❌ Network error. Please check your connection and try again.")
         return
       }
 
-      // Show the actual error (helps debugging)
       setError(`Failed to create salon: ${msg}`)
     } finally {
       setLoading(false)
@@ -133,8 +122,7 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-6">
-      {/* Progress Header */}
-      <div className="flex items-center justify-between mb-12">
+        <div className="flex items-center justify-between mb-12">
         {[1, 2, 3].map((s) => (
           <div key={s} className="flex items-center">
             <div className={cn(
@@ -154,7 +142,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         ))}
       </div>
 
-      {/* Step 1: Salon Info */}
       {step === 1 && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="space-y-2">
@@ -227,7 +214,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         </div>
       )}
 
-      {/* Step 2: Operating Hours */}
       {step === 2 && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="space-y-2">
@@ -300,7 +286,6 @@ export function OnboardingWizard({ userId, onComplete }: OnboardingWizardProps) 
         </div>
       )}
 
-      {/* Step 3: Success */}
       {step === 3 && (
         <div className="text-center space-y-8 animate-in zoom-in duration-500">
           <div className="w-24 h-24 bg-brand/10 rounded-full flex items-center justify-center mx-auto">

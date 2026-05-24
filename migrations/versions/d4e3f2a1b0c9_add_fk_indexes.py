@@ -1,39 +1,35 @@
 """add foreign-key / hot-path indexes
 
-PostgreSQL does NOT auto-create indexes on foreign keys. Without these every
-join in the booking / salon-detail hot path does a sequential scan.
-
 Revision ID: d4e3f2a1b0c9
 Revises: c3d2e1f0a9b8
 Create Date: 2026-05-15 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 
 
-revision: str = 'd4e3f2a1b0c9'
-down_revision: Union[str, Sequence[str], None] = 'c3d2e1f0a9b8'
+revision: str = "d4e3f2a1b0c9"
+down_revision: Union[str, Sequence[str], None] = "c3d2e1f0a9b8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# (index_name, table, [columns])
 _INDEXES = [
-    ('ix_bookings_client_id', 'bookings', ['client_id']),
-    ('ix_bookings_staff_id', 'bookings', ['staff_id']),
-    ('ix_bookings_service_id', 'bookings', ['service_id']),
-    ('ix_bookings_start_time', 'bookings', ['start_time']),
-    ('ix_bookings_status', 'bookings', ['status']),
-    ('ix_reviews_salon_id', 'reviews', ['salon_id']),
-    ('ix_reviews_author_id', 'reviews', ['author_id']),
-    ('ix_staff_salon_id', 'staff', ['salon_id']),
-    ('ix_staff_user_id', 'staff', ['user_id']),
-    ('ix_services_salon_id', 'services', ['salon_id']),
-    ('ix_salons_owner_id', 'salons', ['owner_id']),
-    # staff_services PK is (staff_id, service_id) → reverse lookup by service needs its own index
-    ('ix_staff_services_service_id', 'staff_services', ['service_id']),
+    ("ix_bookings_client_id", "bookings", ["client_id"]),
+    ("ix_bookings_staff_id", "bookings", ["staff_id"]),
+    ("ix_bookings_service_id", "bookings", ["service_id"]),
+    ("ix_bookings_start_time", "bookings", ["start_time"]),
+    ("ix_bookings_status", "bookings", ["status"]),
+    ("ix_reviews_salon_id", "reviews", ["salon_id"]),
+    ("ix_reviews_author_id", "reviews", ["author_id"]),
+    ("ix_staff_salon_id", "staff", ["salon_id"]),
+    ("ix_staff_user_id", "staff", ["user_id"]),
+    ("ix_services_salon_id", "services", ["salon_id"]),
+    ("ix_salons_owner_id", "salons", ["owner_id"]),
+    ("ix_staff_services_service_id", "staff_services", ["service_id"]),
 ]
 
 

@@ -28,8 +28,6 @@ function VerifyContent() {
         const res = await api.verifyEmail(token!)
         setStatus("success")
         setMessage(res.message || "Your email has been successfully verified!")
-        // Check if this is a partner completing registration
-        // Use localStorage (not sessionStorage) — email links open in a new tab
         const pending = localStorage.getItem("pending_salon")
         setIsPartner(!!pending)
       } catch (err: any) {

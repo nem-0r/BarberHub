@@ -17,11 +17,9 @@ import {
   AlertCircle,
 } from "lucide-react"
 
-// Index 0..6 = Mon..Sun, matching backend (datetime.weekday()) and operating_hours keys.
+// Index 0..6 = Mon..Sun, matches backend datetime.weekday()
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-// Open/closed status and booking slot times are computed in this timezone.
-// Kazakhstan is single UTC+5 (Asia/Almaty); UTC kept for non-KZ/testing.
 const TIMEZONES = [
   "Asia/Almaty",
   "Asia/Aqtobe",
@@ -44,8 +42,6 @@ function buildDefaultHours(operating_hours: Record<string, [string, string]> | n
     if (Array.isArray(h) && h.length >= 2) {
       return { open: h[0], close: h[1], closed: false }
     }
-    // No entry for this day → salon closed that day. If operating_hours is
-    // entirely absent, fall back to a sensible default (open 09:00–21:00).
     if (!operating_hours) return { open: "09:00", close: "21:00", closed: false }
     return { open: "09:00", close: "21:00", closed: true }
   })
@@ -101,7 +97,6 @@ export default function SalonProfilePage() {
     e.preventDefault()
     setStatus(null)
 
-    // Validate open days: start must precede end.
     for (let i = 0; i < hours.length; i++) {
       const d = hours[i]
       if (!d.closed && d.open >= d.close) {
@@ -125,7 +120,6 @@ export default function SalonProfilePage() {
         token,
       )
       setSalon(updated)
-      // Sidebar + marketplace + booking pages share these caches — refresh them.
       queryClient.invalidateQueries({ queryKey: queryKeys.salonByOwner(user.id) })
       queryClient.invalidateQueries({ queryKey: queryKeys.salonById(salon.id) })
       setStatus({ type: "success", message: "Salon profile updated successfully!" })
@@ -174,7 +168,6 @@ export default function SalonProfilePage() {
           )}
 
           <form onSubmit={handleSave} className="space-y-6">
-            {/* Salon name (read-only context) + contact */}
             <div className="bento-card">
               <h3 className="text-xl font-bold text-foreground mb-6">Salon Details</h3>
 
@@ -230,7 +223,6 @@ export default function SalonProfilePage() {
               </div>
             </div>
 
-            {/* Operating hours */}
             <div className="bento-card">
               <div className="flex items-center gap-3 mb-2">
                 <Clock className="w-5 h-5 text-brand" />

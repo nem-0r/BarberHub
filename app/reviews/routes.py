@@ -1,6 +1,6 @@
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
 from app.reviews.schemas import ReviewCreate, ReviewRead
@@ -19,7 +19,7 @@ async def create_review(
     request: Request,
     data: ReviewCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     return await svc.create_review(data, current_user.id, session)
 

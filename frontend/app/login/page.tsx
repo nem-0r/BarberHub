@@ -10,7 +10,6 @@ import { api } from "@/lib/api"
 
 const GOOGLE_OAUTH_ENABLED = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
-/** Allow only same-origin redirects: must start with "/" but NOT "//" */
 function isSafeRedirect(url: string): boolean {
   return typeof url === "string" && url.startsWith("/") && !url.startsWith("//")
 }
@@ -28,23 +27,16 @@ function LoginContent() {
   const [error, setError] = useState<string | null>(null)
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
-  // Resend-verification state. Cooldown matches the backend's 60s per-email
-  // Redis throttle so the button doesn't lie about availability.
   const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle")
   const [resendError, setResendError] = useState<string | null>(null)
   const [resendCooldown, setResendCooldown] = useState(0)
 
-  // Mounted flag — the resend handler awaits the API and may resolve after
-  // the user navigated away (router.push on success login etc.). Without
-  // this guard React logs "Can't perform a state update on an unmounted
-  // component" and any errors are confusing.
   const isMounted = useRef(true)
   useEffect(() => {
     isMounted.current = true
     return () => { isMounted.current = false }
   }, [])
 
-  // Countdown timer for the resend cooldown.
   useEffect(() => {
     if (resendCooldown <= 0) return
     const t = setTimeout(() => setResendCooldown(c => c - 1), 1000)
@@ -64,24 +56,17 @@ function LoginContent() {
       if (!isMounted.current) return
       setResendStatus("error")
       setResendError(err?.message || "Could not send. Try again later.")
-      // Short client-side cooldown on error so a 5xx loop can't be hammered
-      // by impatient clicking. Backend's IP rate-limit kicks in eventually
-      // but a 15s pause keeps the UI honest.
       setResendCooldown(15)
     }
   }
 
-  // Tab switch should clear the previous tab's transient feedback — leaving
-  // the "Email not verified" warning visible when the user has switched to
-  // the Register tab is just confusing.
   const switchTab = (next: "login" | "register") => {
     setTab(next)
     setError(null)
     setUnverifiedEmail(null)
     setResendStatus("idle")
     setResendError(null)
-    // Intentionally leave `resendCooldown` alone — it tracks a real backend
-    // throttle window that doesn't reset just because the user changed tabs.
+    // resendCooldown intentionally not reset — tracks a real backend throttle window
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,8 +76,6 @@ function LoginContent() {
     
     try {
       setUnverifiedEmail(null)
-      // Reset transient resend feedback on every fresh submit — the cooldown
-      // counter itself persists (real backend throttle, not UI sugar).
       setResendStatus("idle")
       setResendError(null)
       if (tab === "login") {
@@ -100,13 +83,9 @@ function LoginContent() {
         const token = data.access_token
         localStorage.setItem("token", token)
         
-        // Fetch full user info including role and is_verified
         const user = await api.getMe(token)
         localStorage.setItem("user", JSON.stringify(user))
 
-        // Redirect based on role, honouring ?redirect= if present and safe.
-        // If pending_salon exists in sessionStorage, the OnboardingWizard will
-        // read and pre-fill it automatically when the dashboard loads.
         const redirectParam = searchParams.get("redirect") ?? ""
         const fallback = (user.role === 'owner' || user.role === 'admin')
           ? "/partner/dashboard"
@@ -119,8 +98,6 @@ function LoginContent() {
           full_name: name,
           phone: phone,
         })
-        // Do NOT auto-login — user must verify email first.
-        // Show the "check your inbox" confirmation screen.
         setRegisteredEmail(email)
       }
     } catch (err: any) {
@@ -160,7 +137,6 @@ function LoginContent() {
     }
   }
 
-  // Registration success — show "check your inbox" screen
   if (registeredEmail) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -196,7 +172,6 @@ function LoginContent() {
 
       <div className="flex-1 flex items-center justify-center p-6 pt-24">
         <div className="w-full max-w-md">
-          {/* Logo */}
           <div className="flex items-center justify-center gap-2 mb-8">
             <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center brand-glow">
               <Scissors className="w-5 h-5 text-brand-foreground" />
@@ -206,9 +181,7 @@ function LoginContent() {
             </span>
           </div>
 
-          {/* Card */}
           <div className="glass-card p-8">
-            {/* Tab Switch */}
             <div className="flex p-1 rounded-xl bg-surface-elevated border border-border-solid mb-8">
               {(["login", "register"] as const).map((t) => (
                 <button
@@ -273,7 +246,6 @@ function LoginContent() {
               </div>
             )}
 
-            {/* Social Sign In */}
             {GOOGLE_OAUTH_ENABLED ? (
               <>
                 <div className="flex justify-center mb-5">
@@ -296,7 +268,6 @@ function LoginContent() {
               </>
             ) : null}
 
-            {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
               {tab === "register" && (
                 <>

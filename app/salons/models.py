@@ -1,6 +1,6 @@
 import uuid
 from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship, Column
+from sqlmodel import SQLModel, Field, Relationship
 import sqlalchemy as sa
 
 
@@ -11,19 +11,34 @@ class Salon(SQLModel, table=True):
     owner_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
     name: str = Field(sa_column=sa.Column(sa.String(100), nullable=False))
     address: str = Field(sa_column=sa.Column(sa.Text, nullable=False))
-    # App targets Kazakhstan (single UTC+5 zone). UTC default made every salon
-    # read 5h behind local time → "Closed" during local working hours.
-    timezone: str = Field(default="Asia/Almaty", sa_column=sa.Column(sa.String(50), default="Asia/Almaty"))
-    image_url: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(255), nullable=True))
-    city: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(100), nullable=True))
-    # Public contact number for the salon (distinct from the owner's User.phone).
-    phone: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(20), nullable=True))
-    description: Optional[str] = Field(default=None, sa_column=sa.Column(sa.Text, nullable=True))
-    rating: Optional[float] = Field(default=None, sa_column=sa.Column(sa.Float, nullable=True))
+    timezone: str = Field(
+        default="Asia/Almaty", sa_column=sa.Column(sa.String(50), default="Asia/Almaty")
+    )
+    image_url: Optional[str] = Field(
+        default=None, sa_column=sa.Column(sa.String(255), nullable=True)
+    )
+    city: Optional[str] = Field(
+        default=None, sa_column=sa.Column(sa.String(100), nullable=True)
+    )
+    phone: Optional[str] = Field(
+        default=None, sa_column=sa.Column(sa.String(20), nullable=True)
+    )
+    description: Optional[str] = Field(
+        default=None, sa_column=sa.Column(sa.Text, nullable=True)
+    )
+    rating: Optional[float] = Field(
+        default=None, sa_column=sa.Column(sa.Float, nullable=True)
+    )
     review_count: int = Field(default=0, sa_column=sa.Column(sa.Integer, default=0))
-    price_range: Optional[str] = Field(default=None, sa_column=sa.Column(sa.String(10), nullable=True))
-    tags: Optional[List[str]] = Field(default=None, sa_column=sa.Column(sa.JSON, nullable=True))
-    operating_hours: Optional[dict] = Field(default=None, sa_column=sa.Column(sa.JSON, nullable=True))
+    price_range: Optional[str] = Field(
+        default=None, sa_column=sa.Column(sa.String(10), nullable=True)
+    )
+    tags: Optional[List[str]] = Field(
+        default=None, sa_column=sa.Column(sa.JSON, nullable=True)
+    )
+    operating_hours: Optional[dict] = Field(
+        default=None, sa_column=sa.Column(sa.JSON, nullable=True)
+    )
     is_active: bool = Field(default=True)
 
     owner: Optional["User"] = Relationship(

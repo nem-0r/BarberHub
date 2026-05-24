@@ -68,7 +68,6 @@ export default function SalonDetailPage({
     notFound()
   }
 
-  // Clients must never see/book disabled services.
   const activeServices = services.filter((s: any) => s.isActive !== false)
 
   const tabs: { id: Tab; label: string; count: number }[] = [
@@ -77,7 +76,6 @@ export default function SalonDetailPage({
     { id: "reviews", label: "Reviews", count: reviews.length },
   ]
 
-  // Group services by category
   const servicesByCategory = activeServices.reduce(
     (acc, service) => {
       if (!acc[service.category]) {
@@ -93,7 +91,6 @@ export default function SalonDetailPage({
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Hero Banner */}
       <div className="relative h-[300px] sm:h-[400px]">
         <Image
           src={salon.coverImage}
@@ -104,7 +101,6 @@ export default function SalonDetailPage({
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
 
-        {/* Back Button */}
         <div className="absolute top-20 left-6">
           <Link
             href="/"
@@ -116,12 +112,10 @@ export default function SalonDetailPage({
         </div>
       </div>
 
-      {/* Salon Info */}
       <div className="max-w-5xl mx-auto px-6 -mt-24 relative z-10">
         <div className="bg-card border border-border-solid rounded-2xl p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div>
-              {/* Status & Price */}
               <div className="flex items-center gap-2 mb-3">
                 <span
                   className={cn(
@@ -138,12 +132,10 @@ export default function SalonDetailPage({
                 </span>
               </div>
 
-              {/* Name */}
               <h1 className="font-display font-bold text-3xl sm:text-4xl text-foreground mb-2">
                 {salon.name}
               </h1>
 
-              {/* Rating */}
               <div className="flex items-center gap-2 mb-4">
                 <div className="flex items-center gap-1">
                   <Star className="w-5 h-5 text-gold fill-gold" />
@@ -156,7 +148,6 @@ export default function SalonDetailPage({
                 </span>
               </div>
 
-              {/* Address & Hours */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4" />
@@ -176,7 +167,6 @@ export default function SalonDetailPage({
                 </div>
               </div>
 
-              {/* Tags */}
               <div className="flex flex-wrap gap-2 mt-4">
                 {salon.tags.map((tag: string) => (
                   <span
@@ -189,7 +179,6 @@ export default function SalonDetailPage({
               </div>
             </div>
 
-            {/* Book Now CTA */}
             <Link
               href={`/book/${salon.id}`}
               className="flex-shrink-0 inline-flex items-center justify-center gap-2 px-8 py-4 bg-brand text-brand-foreground rounded-xl font-semibold text-base hover:bg-brand/90 transition-colors brand-glow"
@@ -199,14 +188,12 @@ export default function SalonDetailPage({
             </Link>
           </div>
 
-          {/* Description */}
           <p className="mt-6 text-muted-foreground leading-relaxed">
             {salon.description}
           </p>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="max-w-5xl mx-auto px-6 mt-8">
         <div className="flex items-center gap-2 border-b border-border-solid">
           {tabs.map((tab) => (
@@ -229,9 +216,7 @@ export default function SalonDetailPage({
         </div>
       </div>
 
-      {/* Tab Content */}
       <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Services Tab */}
         {activeTab === "services" && (
           <div className="space-y-8">
             {(Object.entries(servicesByCategory) as [string, any[]][]).map(([category, categoryServices]) => (
@@ -275,7 +260,6 @@ export default function SalonDetailPage({
           </div>
         )}
 
-        {/* Barbers Tab */}
         {activeTab === "barbers" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {barbers.map((barber) => (
@@ -327,7 +311,6 @@ export default function SalonDetailPage({
           </div>
         )}
 
-        {/* Reviews Tab */}
         {activeTab === "reviews" && (
           <div className="space-y-4">
             {reviews.length > 0 ? (

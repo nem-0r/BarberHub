@@ -1,6 +1,14 @@
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Request,
+)
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
@@ -33,7 +41,9 @@ async def list_salons(
 
 @router.get("/{salon_id}", response_model=SalonRead)
 @limiter.limit("1000/hour")
-async def get_salon(request: Request, salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_salon(
+    request: Request, salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     salon = await svc.get_salon_by_id(salon_id, session)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
@@ -42,7 +52,9 @@ async def get_salon(request: Request, salon_id: uuid.UUID, session: AsyncSession
 
 @router.get("/owner/{owner_id}", response_model=SalonRead)
 @limiter.limit("100/hour")
-async def get_salon_by_owner(request: Request, owner_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_salon_by_owner(
+    request: Request, owner_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     statement = select(Salon).where(Salon.owner_id == owner_id)
     result = await session.exec(statement)
     salon = result.first()
@@ -58,43 +70,55 @@ async def get_salon_stats(
     request: Request,
     salon_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     salon = await svc.get_salon_by_id(salon_id, session)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
-        
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
+
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
         raise HTTPException(status_code=403, detail="Not authorized to see these stats")
-        
+
     return await svc.get_salon_stats(salon_id, session)
 
 
-@router.post("/", response_model=SalonRead, status_code=201, dependencies=[Depends(owner_admin_only)])
+@router.post(
+    "/",
+    response_model=SalonRead,
+    status_code=201,
+    dependencies=[Depends(owner_admin_only)],
+)
 @limiter.limit("20/minute;100/hour")
 async def create_salon(
     request: Request,
     data: SalonCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    # Automatically assign current user as owner if it's a partner registration
     if current_user.role == UserRole.owner:
         data.owner_id = current_user.id
-    elif current_user.role != UserRole.admin and str(current_user.id) != str(data.owner_id):
-        raise HTTPException(status_code=403, detail="Cannot create salon for another user")
-        
+    elif current_user.role != UserRole.admin and str(current_user.id) != str(
+        data.owner_id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Cannot create salon for another user"
+        )
+
     return await svc.create_salon(data, session)
 
 
-@router.patch("/{salon_id}", response_model=SalonRead, dependencies=[Depends(owner_admin_only)])
+@router.patch(
+    "/{salon_id}", response_model=SalonRead, dependencies=[Depends(owner_admin_only)]
+)
 @limiter.limit("20/minute;100/hour")
 async def update_salon(
-    request: Request, 
-    salon_id: uuid.UUID, 
-    data: SalonUpdate, 
+    request: Request,
+    salon_id: uuid.UUID,
+    data: SalonUpdate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     salon = await svc.update_salon(salon_id, data, session, current_user)
     if not salon:
@@ -105,10 +129,10 @@ async def update_salon(
 @router.delete("/{salon_id}", status_code=204, dependencies=[Depends(owner_admin_only)])
 @limiter.limit("20/minute;100/hour")
 async def delete_salon(
-    request: Request, 
-    salon_id: uuid.UUID, 
+    request: Request,
+    salon_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     deleted = await svc.delete_salon(salon_id, session, current_user)
     if not deleted:
@@ -123,14 +147,18 @@ async def upload_salon_image(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     salon = await svc.get_salon_by_id(salon_id, session)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this salon")
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to modify this salon"
+        )
 
     contents = await file.read()
 

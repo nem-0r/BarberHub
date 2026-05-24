@@ -35,7 +35,6 @@ function ScheduleContent() {
   const queryClient = useQueryClient()
   const initialStaffId = searchParams.get("staffId")
 
-  // ── Auth bootstrap (cached user from localStorage) ──────────────────────────
   const [user, setUser] = useState<any>(null)
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => {
@@ -56,7 +55,6 @@ function ScheduleContent() {
   const isStaff = user?.role === "staff"
   const isOwner = user?.role === "owner" || user?.role === "admin"
 
-  // ── Salon + staff list (cache-shared with sidebar/dashboard) ────────────────
   const ownerSalonQuery = useSalonByOwnerQuery(isOwner ? user?.id : null)
   const staffProfileQuery = useStaffByUserQuery(isStaff ? user?.id : null)
   const staffSalonQuery = useSalonByIdQuery(isStaff ? staffProfileQuery.data?.salonId : null)
@@ -64,7 +62,6 @@ function ScheduleContent() {
   const salon = isOwner ? ownerSalonQuery.data : staffSalonQuery.data
   const salonId: string | undefined = salon?.id
 
-  // Owner needs the full team; staff only sees themselves.
   const teamQuery = useQuery<any[]>({
     queryKey: salonId ? ["staff", "salon", salonId] : ["staff", "salon", "__pending__"],
     queryFn: () => api.getBarbersBySalonId(salonId!),
@@ -75,7 +72,6 @@ function ScheduleContent() {
     ? (staffProfileQuery.data ? [staffProfileQuery.data] : [])
     : (teamQuery.data ?? [])
 
-  // ── Selected staff: defaults to self for staff, first/url-param for owners ──
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   useEffect(() => {
     if (selectedStaffId) return
@@ -96,11 +92,8 @@ function ScheduleContent() {
     [staffList, selectedStaffId],
   )
 
-  // ── Schedules for the selected staff ────────────────────────────────────────
   const schedulesQuery = useSchedulesByStaffQuery(selectedStaffId)
 
-  // Local editing state derived from server data — only resets when the
-  // underlying staff or server payload changes (no flicker on re-render).
   const [schedules, setSchedules] = useState<Schedule[]>([])
   useEffect(() => {
     if (!schedulesQuery.data || !selectedStaffId) return
@@ -118,9 +111,6 @@ function ScheduleContent() {
 
   const [saving, setSaving] = useState(false)
 
-  // First-mount loading — block UI until we have salon AND a selected staff.
-  // Subsequent staff/schedule swaps show data immediately (cache-first) with
-  // a small background spinner via `refreshing`.
   const initialLoading =
     !authReady ||
     (isOwner && ownerSalonQuery.isLoading && !salon) ||
@@ -206,7 +196,6 @@ function ScheduleContent() {
         </div>
 
         <div className={cn("grid grid-cols-1 gap-8", !isStaff && "lg:grid-cols-4")}>
-          {/* Staff List Sidebar — owners only */}
           {!isStaff && (
             <div className="lg:col-span-1 space-y-4">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
@@ -243,7 +232,6 @@ function ScheduleContent() {
             </div>
           )}
 
-          {/* Schedule Editor */}
           <div className={cn(!isStaff && "lg:col-span-3")}>
             {selectedStaff ? (
               <div className="bento-card">

@@ -43,7 +43,6 @@ export default function PartnerDashboardPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  // Auth bootstrap.
   const [authState, setAuthState] = useState<{ token: string | null; cachedUser: any | null }>({
     token: null,
     cachedUser: null,
@@ -65,24 +64,18 @@ export default function PartnerDashboardPage() {
     setAuthState({ token, cachedUser: parsed })
   }, [router])
 
-  // ── Fresh user (cache-shared with /profile via queryKeys.me) ─────────────────
   const meQuery = useMeQuery(authState.token)
   const user = meQuery.data ?? authState.cachedUser
   const role: string | undefined = user?.role
   const userId: string | undefined = user?.id
 
-  // Persist a fresh user snapshot back to localStorage so other tabs/sidebar see it.
   useEffect(() => {
     if (meQuery.data) localStorage.setItem("user", JSON.stringify(meQuery.data))
   }, [meQuery.data])
 
-  // ── Owner/admin: salon by ownership ─────────────────────────────────────────
   const isOwner = role === "owner" || role === "admin"
   const ownerSalonQuery = useSalonByOwnerQuery(isOwner ? userId : null)
 
-  // ── Staff: user → staff profile → salon. Both queries are cache-shared with
-  // partner-sidebar / schedule page, so navigating between dashboard pages
-  // does NOT re-fetch.
   const isStaff = role === "staff"
   const staffProfileQuery = useStaffByUserQuery(isStaff ? userId : null)
   const staffSalonQuery = useSalonByIdQuery(isStaff ? staffProfileQuery.data?.salonId : null)
@@ -93,7 +86,6 @@ export default function PartnerDashboardPage() {
   const salon = isOwner ? ownerSalonQuery.data : staffSalon
   const salonId: string | undefined = salon?.id
 
-  // ── Stats + bookings (only for owner/admin, only when we have a salon) ─────
   const statsQuery = useSalonStatsQuery(
     isOwner ? salonId : null,
     authState.token,
@@ -103,7 +95,6 @@ export default function PartnerDashboardPage() {
     authState.token,
   )
 
-  // ── Onboarding: owner with no salon → 404 from getSalonByOwnerId ───────────
   const ownerSalonError: any = ownerSalonQuery.error
   const ownerSalonNotFound =
     isOwner &&
@@ -112,7 +103,6 @@ export default function PartnerDashboardPage() {
       (typeof ownerSalonError.message === "string" &&
         ownerSalonError.message.toLowerCase().includes("not found")))
 
-  // ── Centralized 401 handling: any query → token dead → login ───────────────
   useEffect(() => {
     const errors: any[] = [
       meQuery.error,
@@ -135,12 +125,10 @@ export default function PartnerDashboardPage() {
     router,
   ])
 
-  // Clients have no partner dashboard — send them home.
   useEffect(() => {
     if (role === "client") router.replace("/")
   }, [role, router])
 
-  // ── Loading: only block first render. Cached visits skip the spinner. ──────
   const initialAuthBooted = !!authState.cachedUser
   const meLoading = meQuery.isLoading && !user
   const salonLoading =
@@ -153,7 +141,6 @@ export default function PartnerDashboardPage() {
 
   const loading = !initialAuthBooted || meLoading || (!ownerSalonNotFound && (salonLoading || ownerDataLoading))
 
-  // ── Generic error (non-404 from owner salon, non-auth) ─────────────────────
   const genericError =
     !ownerSalonNotFound &&
     !!ownerSalonError &&
@@ -161,7 +148,6 @@ export default function PartnerDashboardPage() {
       ? (ownerSalonError.message ?? "Failed to load dashboard")
       : null
 
-  // ── Mutations / handlers ────────────────────────────────────────────────────
   const handleSalonImageUpload = async (file: File) => {
     try {
       const token = localStorage.getItem("token")
@@ -174,12 +160,9 @@ export default function PartnerDashboardPage() {
   }
 
   const refreshAfterOnboarding = () => {
-    // Newly-created salon won't be in cache yet — invalidate so the salon-by-owner
-    // query refetches, then dependent stats/bookings auto-fire.
     if (userId) queryClient.invalidateQueries({ queryKey: queryKeys.salonByOwner(userId) })
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
@@ -227,7 +210,6 @@ export default function PartnerDashboardPage() {
     )
   }
 
-  // ── Staff View ─────────────────────────────────────────────────────────────
   if (role === "staff") {
     return (
       <div className="min-h-screen bg-background">
@@ -239,7 +221,6 @@ export default function PartnerDashboardPage() {
     )
   }
 
-  // ── Owner View ─────────────────────────────────────────────────────────────
   const stats = statsQuery.data
   const appointments: any[] = bookingsQuery.data ?? []
 
@@ -274,7 +255,6 @@ export default function PartnerDashboardPage() {
     },
   ]
 
-  // Filter and format in the salon's local timezone, not the browser's.
   const salonTz = salon?.timezone
   const todayAppointments = appointments
     .filter((a: any) => isSameSalonDay(a.start_time, a.salon_timezone ?? salonTz))

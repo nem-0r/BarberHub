@@ -15,7 +15,7 @@ class Chunk:
 
 
 def _approx_tokens(text: str) -> int:
-    # ~4 chars per token is a reasonable estimate for chunking purposes
+    # ~4 chars per token
     return max(1, len(text) // 4)
 
 
@@ -38,10 +38,7 @@ def _word_split(text: str, max_tokens: int) -> list[str]:
 
 
 class FixedSizeChunker:
-    """
-    Splits text into fixed-size windows with overlap.
-    Default: 256 tokens, ~15% overlap (38 tokens).
-    """
+    """Fixed-size windows with overlap (default: 256 tokens, 38-token overlap)."""
 
     def __init__(self, chunk_tokens: int = 256, overlap_tokens: int = 38):
         assert 100 <= chunk_tokens <= 512, "chunk_tokens must be in [100, 512]"
@@ -53,10 +50,9 @@ class FixedSizeChunker:
         words = doc["text"].split()
         step = self.chunk_tokens - self.overlap_tokens
 
-        # 1 word ≈ 1.3 tokens on average
-        tok_per_word = 1.3
+        tok_per_word = 1.3  # ~1.3 tokens per word
         word_window = max(1, int(self.chunk_tokens / tok_per_word))
-        word_step   = max(1, int(step / tok_per_word))
+        word_step = max(1, int(step / tok_per_word))
 
         chunks: list[Chunk] = []
         i = 0
@@ -80,14 +76,7 @@ class FixedSizeChunker:
 
 
 class RecursiveChunker:
-    """
-    Splits at the highest semantic boundary available:
-      1. Paragraph (double newline)
-      2. Sentence (.!?)
-      3. Word (fallback)
-
-    Small pieces are merged back up to max_tokens.
-    """
+    """Splits on paragraphs, then sentences, then words. Merges short pieces."""
 
     def __init__(self, max_tokens: int = 350, min_tokens: int = 100):
         assert 100 <= max_tokens <= 512
@@ -143,7 +132,7 @@ class RecursiveChunker:
 
         chunks: list[Chunk] = []
         for idx, text in enumerate(merged):
-            if _approx_tokens(text) < 50:  # skip very short noise fragments
+            if _approx_tokens(text) < 50:  # skip noise fragments
                 continue
             chunks.append(
                 Chunk(

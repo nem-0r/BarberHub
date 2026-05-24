@@ -3,13 +3,6 @@
 import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 
-/**
- * Root error boundary. Catches anything thrown during client rendering of
- * any segment under `app/`. Renders a friendly fallback instead of Next.js'
- * default red overlay or a blank page.
- *
- * `reset()` re-renders the segment; useful for transient network blips.
- */
 export default function GlobalError({
   error,
   reset,
@@ -18,7 +11,6 @@ export default function GlobalError({
   reset: () => void
 }) {
   useEffect(() => {
-    // Surface to console in case a remote logger picks it up.
     console.error("[app/error]", error)
   }, [error])
 

@@ -36,7 +36,6 @@ export function SearchBar({ onSearch, onCityChange, selectedCity }: SearchBarPro
       onSubmit={handleSubmit}
       className="w-full max-w-3xl mx-auto flex items-center gap-2 bg-surface border border-border-solid rounded-2xl p-2"
     >
-      {/* City Selector */}
       <div ref={cityRef} className="relative">
         <button
           type="button"
@@ -72,10 +71,8 @@ export function SearchBar({ onSearch, onCityChange, selectedCity }: SearchBarPro
         )}
       </div>
 
-      {/* Divider */}
       <div className="w-px h-8 bg-border-solid" />
 
-      {/* Search Input */}
       <div className="flex-1 flex items-center gap-3 px-3">
         <Search className="w-5 h-5 text-muted-foreground flex-shrink-0" />
         <input
@@ -90,7 +87,6 @@ export function SearchBar({ onSearch, onCityChange, selectedCity }: SearchBarPro
         />
       </div>
 
-      {/* Search Button */}
       <button
         type="submit"
         className="px-6 py-3 bg-brand text-brand-foreground rounded-xl font-semibold text-sm hover:bg-brand/90 transition-colors brand-glow-sm"

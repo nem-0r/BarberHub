@@ -14,8 +14,10 @@ class Review(SQLModel, table=True):
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = Field(default=None)
     created_at: datetime = Field(
-        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, default=sa.func.now()),
-        default_factory=lambda: datetime.now(timezone.utc)
+        sa_column=sa.Column(
+            sa.DateTime(timezone=True), nullable=False, default=sa.func.now()
+        ),
+        default_factory=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships

@@ -10,14 +10,12 @@ from config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("custom_logging")
 
-# Import elasticsearch ONLY when enabled — the prod requirements-prod.txt drops
-# the elasticsearch package entirely, so a top-level import would crash boot on
-# Render/Fly free tiers. docker-compose dev keeps ELASTIC_ENABLED=True and the
-# import succeeds because the dev image installs elasticsearch.
+# Lazy import: prod drops the elasticsearch package entirely.
 es = None
 if settings.ELASTIC_ENABLED:
     try:
         from elasticsearch import Elasticsearch  # type: ignore[import-not-found]
+
         es = Elasticsearch([settings.ELASTIC_URL])
     except Exception as e:
         logger.error(f"Could not connect to Elasticsearch: {e}")
@@ -25,7 +23,6 @@ if settings.ELASTIC_ENABLED:
 
 
 def _send_to_es(log_data: dict) -> None:
-    """Synchronous ES write — runs in a thread pool to avoid blocking the event loop."""
     try:
         es.index(index="app-logs", document=log_data)
     except Exception as e:
@@ -43,7 +40,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         _SENSITIVE_PREFIXES = ("/users/verify/", "/users/reset-password/")
         if any(path.startswith(p) for p in _SENSITIVE_PREFIXES):
             prefix = next(p for p in _SENSITIVE_PREFIXES if path.startswith(p))
-            url = str(request.url.scheme) + "://" + str(request.url.netloc) + prefix + "<redacted>"
+            url = (
+                str(request.url.scheme)
+                + "://"
+                + str(request.url.netloc)
+                + prefix
+                + "<redacted>"
+            )
         else:
             url = str(request.url.replace(query=None))
 

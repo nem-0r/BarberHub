@@ -1,52 +1,57 @@
 from pathlib import Path
 from typing import List
 
-# joblib + pandas + the sklearn model they pull at load time add ~80-100 MB
-# RSS — too much to pay at idle on Render Free (512 MB total). Both modules
-# are now imported lazily inside _load() / predict(), so the first
-# /ml/evaluate-barber request takes ~500ms longer but the API can boot inside
-# the memory budget.
+# joblib and pandas are imported lazily to stay within the Render Free memory budget.
 
-_ML_DIR    = Path(__file__).parent.parent.parent / "ml"
+_ML_DIR = Path(__file__).parent.parent.parent / "ml"
 MODEL_PATH = _ML_DIR / "barber_model.pkl"
 
-BASIC_SKILLS    = frozenset(["classic", "machine"])
-ADVANCED_SKILLS = frozenset(["fade", "beard", "razor", "scissors", "hair_tattoo", "waxing", "black_mask"])
-EXPERT_SKILLS   = frozenset(["extensions", "coloring", "camouflage", "correction", "perm"])
-SOFT_SKILLS     = frozenset(["consulting", "products"])
+BASIC_SKILLS = frozenset(["classic", "machine"])
+ADVANCED_SKILLS = frozenset(
+    ["fade", "beard", "razor", "scissors", "hair_tattoo", "waxing", "black_mask"]
+)
+EXPERT_SKILLS = frozenset(
+    ["extensions", "coloring", "camouflage", "correction", "perm"]
+)
+SOFT_SKILLS = frozenset(["consulting", "products"])
 
 EXP_MAP = {"0": 0, "1-3": 1, "3-5": 2, "5-10": 3, "10+": 4}
 
 FEATURES = [
-    "exp_num", "skills_score", "education_score",
-    "basic_skills_count", "adv_skills_count", "expert_skills_count",
-    "total_skills_count", "soft_skills_count", "soft_skills_score",
+    "exp_num",
+    "skills_score",
+    "education_score",
+    "basic_skills_count",
+    "adv_skills_count",
+    "expert_skills_count",
+    "total_skills_count",
+    "soft_skills_count",
+    "soft_skills_score",
 ]
 
 ROLE_NAMES = {
     "Junior": "Junior Barber",
     "Middle": "Barber",
     "Senior": "Senior Barber",
-    "Top":    "Master Barber",
+    "Top": "Master Barber",
 }
 
 NEXT_LEVEL = {
     "Junior": "Middle",
     "Middle": "Senior",
     "Senior": "Top",
-    "Top":    None,
+    "Top": None,
 }
 
-# Salary ranges in KZT/month — Kazakhstan barbershop market 2024–2025
-# Source: hh.kz, salary analytics for barbers in Almaty/Astana
+# KZT/month salary ranges — hh.kz data, Almaty/Astana market 2024-2025
 SALARY_RANGES = {
-    "Junior": (80_000,   150_000),
-    "Middle": (150_000,  300_000),
-    "Senior": (300_000,  500_000),
-    "Top":    (500_000, 1_000_000),
+    "Junior": (80_000, 150_000),
+    "Middle": (150_000, 300_000),
+    "Senior": (300_000, 500_000),
+    "Top": (500_000, 1_000_000),
 }
 SALARY_CURRENCY = "KZT"
-SALARY_PERIOD   = "month"
+SALARY_PERIOD = "month"
 
 TIPS = {
     "Junior": [
@@ -73,20 +78,17 @@ TIPS = {
 
 LEVEL_ORDER = ["Junior", "Middle", "Senior", "Top"]
 EXPERIENCE_MAX_LEVEL = {
-    "0":    "Junior",
-    "1-3":  "Middle",
-    "3-5":  "Senior",
+    "0": "Junior",
+    "1-3": "Middle",
+    "3-5": "Senior",
     "5-10": "Top",
-    "10+":  "Top",
+    "10+": "Top",
 }
 
-# Minimum skill requirements per level — prevents years of experience from
-# overriding skills assessment.
+# Minimum skill requirements per level.
 SKILL_FLOOR = {
-    # Senior: must know at least 2 advanced techniques
     "Senior": {"adv_min": 2, "expert_min": 0},
-    # Top: must have mastery across both advanced AND specialist services
-    "Top":    {"adv_min": 2, "expert_min": 2},
+    "Top": {"adv_min": 2, "expert_min": 2},
 }
 
 _model = None
@@ -100,51 +102,51 @@ def _load():
                 f"Model not found at {MODEL_PATH}. "
                 "Run 'python3 ml/train.py' first to generate it."
             )
-        import joblib  # lazy — see module-top comment for the RAM rationale
+        import joblib  # lazy import
+
         _model = joblib.load(MODEL_PATH)
     return _model
 
 
 def predict(years_exp_cat: str, skills: List[str], education_count: int) -> dict:
-    model      = _load()
+    model = _load()
     skills_set = frozenset(skills)
 
-    exp_num      = EXP_MAP.get(years_exp_cat, 0)
-    basic_c      = len(skills_set & BASIC_SKILLS)
-    adv_c        = len(skills_set & ADVANCED_SKILLS)
-    expert_c     = len(skills_set & EXPERT_SKILLS)
-    soft_c       = len(skills_set & SOFT_SKILLS)
-    total_c      = basic_c + adv_c + expert_c
+    exp_num = EXP_MAP.get(years_exp_cat, 0)
+    basic_c = len(skills_set & BASIC_SKILLS)
+    adv_c = len(skills_set & ADVANCED_SKILLS)
+    expert_c = len(skills_set & EXPERT_SKILLS)
+    soft_c = len(skills_set & SOFT_SKILLS)
+    total_c = basic_c + adv_c + expert_c
     skills_score = basic_c * 1 + adv_c * 3 + expert_c * 5
-    soft_score   = soft_c * 2
-    edu_score    = education_count * 2
+    soft_score = soft_c * 2
+    edu_score = education_count * 2
 
-    max_basic  = len(BASIC_SKILLS)    # 2
-    max_adv    = len(ADVANCED_SKILLS) # 7
-    max_expert = len(EXPERT_SKILLS)   # 5
-    max_soft   = len(SOFT_SKILLS)     # 2
-    max_score  = max_basic * 1 + max_adv * 3 + max_expert * 5
+    max_basic = len(BASIC_SKILLS)
+    max_adv = len(ADVANCED_SKILLS)
+    max_expert = len(EXPERT_SKILLS)
+    max_soft = len(SOFT_SKILLS)
+    max_score = max_basic * 1 + max_adv * 3 + max_expert * 5
 
     radar_data = [
-        {"skill": "Foundation",     "value": round((basic_c  / max_basic)  * 100)},
-        {"skill": "Advanced",       "value": round((adv_c    / max_adv)    * 100)},
-        {"skill": "Expert",         "value": round((expert_c / max_expert) * 100)},
-        {"skill": "Experience",     "value": round((exp_num  / 4)          * 100)},
-        {"skill": "Education",      "value": round((min(education_count, 7) / 7) * 100)},
-        {"skill": "Client Service", "value": round((soft_c   / max_soft)   * 100)},
+        {"skill": "Foundation", "value": round((basic_c / max_basic) * 100)},
+        {"skill": "Advanced", "value": round((adv_c / max_adv) * 100)},
+        {"skill": "Expert", "value": round((expert_c / max_expert) * 100)},
+        {"skill": "Experience", "value": round((exp_num / 4) * 100)},
+        {"skill": "Education", "value": round((min(education_count, 7) / 7) * 100)},
+        {"skill": "Client Service", "value": round((soft_c / max_soft) * 100)},
     ]
 
-    # ── Foundation qualifier ──────────────────────────────────────────────────
-    # A barber must know at least one foundation skill (Classic Haircut or Clipper Cut).
+    # Require at least one foundation skill.
     if basic_c == 0:
         return {
-            "role":            "Not Qualified",
-            "level":           "Unqualified",
-            "confidence":      0.0,
-            "salary_min":      0,
-            "salary_max":      0,
+            "role": "Not Qualified",
+            "level": "Unqualified",
+            "confidence": 0.0,
+            "salary_min": 0,
+            "salary_max": 0,
             "salary_currency": SALARY_CURRENCY,
-            "salary_period":   SALARY_PERIOD,
+            "salary_period": SALARY_PERIOD,
             "reasoning": [
                 "No foundation skills selected — Classic Haircut or Clipper Cut is required for any barber role",
                 f"{total_c} advanced/specialist skill(s) detected but cannot qualify without foundation competency",
@@ -158,24 +160,34 @@ def predict(years_exp_cat: str, skills: List[str], education_count: int) -> dict
             ],
         }
 
-    # ── ML prediction ─────────────────────────────────────────────────────────
-    import pandas as pd  # lazy — ~70 MB at import time, see module-top comment
-    X = pd.DataFrame([[
-        exp_num, skills_score, edu_score,
-        basic_c, adv_c, expert_c, total_c, soft_c, soft_score,
-    ]], columns=FEATURES)
+    import pandas as pd  # lazy import
 
-    level      = model.predict(X)[0]
-    proba      = model.predict_proba(X)[0]
+    X = pd.DataFrame(
+        [
+            [
+                exp_num,
+                skills_score,
+                edu_score,
+                basic_c,
+                adv_c,
+                expert_c,
+                total_c,
+                soft_c,
+                soft_score,
+            ]
+        ],
+        columns=FEATURES,
+    )
+
+    level = model.predict(X)[0]
+    proba = model.predict_proba(X)[0]
     confidence = round(float(proba.max()) * 100, 1)
 
-    # ── Experience hard cap ───────────────────────────────────────────────────
-    # Prevents the model from predicting levels that require more experience
-    # than the candidate has.
-    max_level    = EXPERIENCE_MAX_LEVEL.get(years_exp_cat, "Junior")
+    # Cap predicted level to what the candidate's experience allows.
+    max_level = EXPERIENCE_MAX_LEVEL.get(years_exp_cat, "Junior")
     original_lvl = level
     if LEVEL_ORDER.index(level) > LEVEL_ORDER.index(max_level):
-        level      = max_level
+        level = max_level
         confidence = round(confidence * 0.75, 1)
 
     reasoning = [
@@ -199,18 +211,16 @@ def predict(years_exp_cat: str, skills: List[str], education_count: int) -> dict
             "professional mastery requires sustained hands-on practice over time"
         )
 
-    # ── Skill floor check ─────────────────────────────────────────────────────
-    # Applied after experience cap. Prevents predicting a high level when the
-    # barber hasn't developed the skills that define that level in practice.
+    # Apply skill floor after experience cap.
     if level in SKILL_FLOOR:
-        req       = SKILL_FLOOR[level]
-        adv_ok    = adv_c    >= req["adv_min"]
+        req = SKILL_FLOOR[level]
+        adv_ok = adv_c >= req["adv_min"]
         expert_ok = expert_c >= req["expert_min"]
 
         if not adv_ok or not expert_ok:
             original_lvl = level
-            level        = "Senior" if level == "Top" else "Middle"
-            confidence   = round(confidence * 0.8, 1)
+            level = "Senior" if level == "Top" else "Middle"
+            confidence = round(confidence * 0.8, 1)
 
             needs = []
             if not adv_ok:
@@ -231,15 +241,15 @@ def predict(years_exp_cat: str, skills: List[str], education_count: int) -> dict
     s_min, s_max = SALARY_RANGES[level]
 
     return {
-        "role":            ROLE_NAMES[level],
-        "level":           level,
-        "confidence":      confidence,
-        "salary_min":      s_min,
-        "salary_max":      s_max,
+        "role": ROLE_NAMES[level],
+        "level": level,
+        "confidence": confidence,
+        "salary_min": s_min,
+        "salary_max": s_max,
         "salary_currency": SALARY_CURRENCY,
-        "salary_period":   SALARY_PERIOD,
-        "reasoning":       reasoning,
-        "radar_data":      radar_data,
-        "next_level":      NEXT_LEVEL[level],
-        "tips":            TIPS[level],
+        "salary_period": SALARY_PERIOD,
+        "reasoning": reasoning,
+        "radar_data": radar_data,
+        "next_level": NEXT_LEVEL[level],
+        "tips": TIPS[level],
     }

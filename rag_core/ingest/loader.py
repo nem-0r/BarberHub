@@ -52,13 +52,14 @@ def load_document(path: str | Path) -> DocChunk:
     suffix = path.suffix.lower()
     parser = _PARSERS.get(suffix)
     if parser is None:
-        raise ValueError(f"Unsupported file type: {suffix}. Supported: {list(_PARSERS)}")
+        raise ValueError(
+            f"Unsupported file type: {suffix}. Supported: {list(_PARSERS)}"
+        )
 
     text = parser(path)
     if not text.strip():
         raise ValueError(f"Extracted empty text from {path.name}")
 
-    # Pull year from the first 200 characters if present
     date_match = re.search(r"20\d{2}", text[:200])
     date_str = date_match.group(0) if date_match else str(datetime.date.today().year)
 

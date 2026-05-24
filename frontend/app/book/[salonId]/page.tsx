@@ -33,8 +33,6 @@ const steps = [
 ]
 
 
-/** True if a salon-local slot (date + HH:MM) is already in the past. Guards
- *  the latency window between fetching slots and confirming. */
 function isSlotInPast(dateStr: string, time: string, tz?: string): boolean {
   try {
     const iso = toUtcIsoFromSalonLocal(dateStr, time, tz)
@@ -78,7 +76,6 @@ export default function BookingPage({
   const [bookingLoading, setBookingLoading] = useState(false)
   const dates = useMemo(() => generateDates(), [])
 
-  // Pre-select from URL params if provided
   const preSelectedService = searchParams.get("service")
   const preSelectedBarber = searchParams.get("barber")
 
@@ -90,7 +87,6 @@ export default function BookingPage({
   const [isBooked, setIsBooked] = useState(false)
   const [availableSlots, setAvailableSlots] = useState<string[]>([])
   const [slotsLoading, setSlotsLoading] = useState(false)
-  // barberId → Map(serviceId → custom_price|null) the barber actually performs.
   const [barberServiceMap, setBarberServiceMap] = useState<Record<string, Map<string, number | null>>>({})
   const [barberMapLoading, setBarberMapLoading] = useState(true)
   const [bookedPrice, setBookedPrice] = useState<number | null>(null)
@@ -119,9 +115,6 @@ export default function BookingPage({
     loadData()
   }, [salonId, preSelectedService, preSelectedBarber])
 
-  // Build the barber→services map once barbers are known. Used to show only
-  // barbers who actually perform the chosen service (a barber not linked to
-  // the service in staff_services would otherwise 400 at booking).
   useEffect(() => {
     if (barbers.length === 0) return
     let cancelled = false
@@ -145,8 +138,6 @@ export default function BookingPage({
       const map = Object.fromEntries(entries)
       setBarberServiceMap(map)
       setBarberMapLoading(false)
-      // Drop a pre-selected barber (from URL) who doesn't perform the chosen
-      // service — otherwise the user only learns at the final confirm step.
       if (preSelectedBarber && selectedService && !map[preSelectedBarber]?.has(selectedService)) {
         setSelectedBarber(null)
       }
@@ -154,7 +145,6 @@ export default function BookingPage({
     return () => { cancelled = true }
   }, [barbers, preSelectedBarber, selectedService])
 
-  // Fetch free slots from backend whenever barber, date, or service changes
   useEffect(() => {
     if (!selectedBarber || !selectedDate || !selectedService) {
       setAvailableSlots([])
@@ -228,9 +218,6 @@ export default function BookingPage({
 
     const currentUser = JSON.parse(userStr)
 
-    // Backend returns slots in salon-local time (HH:MM). Convert salon-local
-    // datetime → UTC ISO with Z so the booking is unambiguous regardless of
-    // the user's browser timezone.
     const startUtcIso = toUtcIsoFromSalonLocal(
       selectedDate!,
       selectedTime!,
@@ -246,8 +233,6 @@ export default function BookingPage({
 
     api.createBooking(payload, token)
       .then((booking: any) => {
-        // Authoritative price the backend actually charged (custom_price if the
-        // barber overrides the service base price).
         if (booking?.final_price != null) setBookedPrice(Number(booking.final_price))
         setIsBooked(true)
       })
@@ -266,11 +251,8 @@ export default function BookingPage({
       .finally(() => setBookingLoading(false))
   }
 
-  // Only active services are bookable — never offer a disabled service
-  // (create_booking rejects it with 400 "service unavailable").
   const bookableServices = services.filter((s: any) => s.isActive !== false)
 
-  // Group services by category
   const servicesByCategory = bookableServices.reduce(
     (acc, service) => {
       if (!acc[service.category]) {
@@ -282,13 +264,10 @@ export default function BookingPage({
     {} as Record<string, typeof services>
   )
 
-  // Step 2 list: only barbers who actually perform the chosen service.
   const eligibleBarbers = selectedService
     ? barbers.filter((b) => barberServiceMap[b.id]?.has(selectedService))
     : barbers
 
-  // Price the client will actually be charged: the barber's custom_price for
-  // this service if set, otherwise the service base price.
   const customPrice =
     selectedBarber && selectedService
       ? barberServiceMap[selectedBarber]?.get(selectedService)
@@ -377,7 +356,6 @@ export default function BookingPage({
 
       <div className="pt-24 pb-16 px-6">
         <div className="max-w-4xl mx-auto">
-          {/* Back Link */}
           <Link
             href={`/salon/${salonId}`}
             className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
@@ -386,7 +364,6 @@ export default function BookingPage({
             Back to {salon.name}
           </Link>
 
-          {/* Header */}
           <div className="mb-8">
             <h1 className="font-display font-bold text-3xl text-foreground mb-2">
               Book an Appointment
@@ -394,7 +371,6 @@ export default function BookingPage({
             <p className="text-muted-foreground">{salon.name}</p>
           </div>
 
-          {/* Progress Steps */}
           <div className="flex items-center justify-between mb-10">
             {steps.map((step, index) => (
               <div key={step.id} className="flex items-center flex-1">
@@ -438,9 +414,7 @@ export default function BookingPage({
             ))}
           </div>
 
-          {/* Step Content */}
           <div className="bg-surface border border-border-solid rounded-2xl p-6 sm:p-8">
-            {/* Step 1: Select Service */}
             {currentStep === 1 && (
               <div>
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
@@ -499,7 +473,6 @@ export default function BookingPage({
               </div>
             )}
 
-            {/* Step 2: Select Barber */}
             {currentStep === 2 && (
               <div>
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
@@ -557,14 +530,11 @@ export default function BookingPage({
               </div>
             )}
 
-            {/* Step 3: Select Date & Time */}
             {currentStep === 3 && (
               <div>
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
                   Pick a Date & Time
                 </h2>
-
-                {/* Date Selection */}
                 <div className="mb-8">
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">
                     Select Date
@@ -595,7 +565,6 @@ export default function BookingPage({
                   </div>
                 </div>
 
-                {/* Time Selection */}
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">
                     Select Time
@@ -641,7 +610,6 @@ export default function BookingPage({
               </div>
             )}
 
-            {/* Step 4: Confirmation */}
             {currentStep === 4 && (
               <div>
                 <h2 className="font-display font-bold text-xl text-foreground mb-6">
@@ -718,7 +686,6 @@ export default function BookingPage({
             )}
           </div>
 
-          {/* Navigation Buttons */}
           <div className="flex items-center justify-between mt-6">
             <button
               onClick={handleBack}

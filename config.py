@@ -14,13 +14,9 @@ class Settings(BaseSettings):
         if v not in allowed:
             raise ValueError(f"ALGORITHM must be one of {allowed}, got {v!r}")
         return v
-    # Short-lived access token (held in JS) + long-lived refresh token (httpOnly
-    # cookie, invisible to JS). XSS can now steal at most a 30-min token.
+
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
-    # Cookie flags. Dev (http://localhost) → SECURE must be False or the browser
-    # drops the cookie. Prod (https) → set COOKIE_SECURE=True. If frontend and
-    # API are on different sites, set COOKIE_SAMESITE="none" (requires Secure).
     REFRESH_COOKIE_NAME: str = "refresh_token"
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
@@ -29,44 +25,27 @@ class Settings(BaseSettings):
     ENABLE_PROFILER: bool = False
 
     # --- Elasticsearch ---
-    # Flip to False in prod (Render/Railway) where ES isn't deployed — the
-    # logging middleware then skips the connection attempt entirely instead of
-    # building a doomed client at import time.
     ELASTIC_ENABLED: bool = True
     ELASTIC_HOST: str = "localhost"
     ELASTIC_PORT: int = 9200
+
     @property
     def ELASTIC_URL(self) -> str:
         return f"http://{self.ELASTIC_HOST}:{self.ELASTIC_PORT}"
 
     # --- Background tasks ---
-    # True  → email/image jobs go through Celery + Redis broker (dev / VPS prod).
-    # False → run in-process via FastAPI BackgroundTasks + APScheduler
-    #         (free-tier deploys where a second worker container costs money).
-    # Local docker-compose.yml keeps True to demonstrate the full stack.
+    # True: Celery+Redis. False: in-process BackgroundTasks+APScheduler.
     USE_CELERY: bool = True
 
     # --- Embedder ---
-    # "sentence_transformer" → local BAAI/bge-m3 (3-4 GB RAM, 1024-dim).
-    # "gemini"               → Google text-embedding-004 over HTTP (zero RAM,
-    #                          768-dim). REQUIRES matching EMBEDDING_DIM and a
-    #                          pgvector column of the same width.
     EMBEDDER_PROVIDER: str = "sentence_transformer"
     EMBEDDING_DIM: int = 1024
     GEMINI_EMBED_MODEL: str = "models/gemini-embedding-2"
 
     # --- Redis ---
-    # Local dev: HOST + PORT, 4 separate DBs per component.
-    # Free-tier prod (Upstash): set REDIS_URL — Upstash supports only DB 0,
-    # so the helper below collapses every component onto DB 0 there. Key
-    # naming already prevents collisions (`user:`, `token:`, `LIMITER/`,
-    # `reminder_sent:`, Celery queue names), so the merge is safe.
     REDIS_URL: str = ""
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
-    # Dedicated DB index for the rate-limiter store (kept off the Celery
-    # broker/0 and the auth caches on 1/2) so a FLUSHDB can't wipe limits.
-    # Ignored when REDIS_URL is set (Upstash Free has only DB 0).
     RATELIMIT_REDIS_DB: int = 3
 
     def effective_redis_url(self, db: int = 0) -> str:
@@ -98,7 +77,7 @@ class Settings(BaseSettings):
     # at the DIRECT connection (port 5432) while DATABASE_URL points at the
     # pooler (6543). Empty → migrations fall back to DATABASE_URL.
     MIGRATION_DATABASE_URL: str = ""
-    
+
     # SMTP (Brevo) — values must be set via .env, never hardcoded
     MAIL_USERNAME: str = ""
     MAIL_PASSWORD: str = ""
@@ -112,7 +91,7 @@ class Settings(BaseSettings):
     # https://app.brevo.com → SMTP & API → API Keys (NOT the SMTP credentials).
     # Empty → fall back to the SMTP path (docker-compose dev, VPS deploys).
     BREVO_API_KEY: str = ""
-    
+
     # Supabase
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""

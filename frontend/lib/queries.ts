@@ -1,10 +1,3 @@
-/**
- * Query key factory + typed hooks. Centralizing keys here lets profile + dashboard +
- * sidebar share the same cache entry — navigating between them is cache-first.
- *
- * Convention: keys are arrays so partial invalidation works
- * (e.g. invalidate everything under ["bookings"]).
- */
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 
@@ -20,7 +13,6 @@ export const queryKeys = {
   schedulesByStaff: (staffId: string) => ["schedules", "staff", staffId] as const,
 }
 
-/** Hook: current user. Disabled until token is provided. */
 export function useMeQuery(token: string | null | undefined) {
   return useQuery<any>({
     queryKey: queryKeys.me(),

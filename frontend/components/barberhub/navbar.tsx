@@ -73,7 +73,6 @@ export function Navbar() {
     if (userStr) setUser(JSON.parse(userStr))
   }, [pathname])
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -95,7 +94,6 @@ export function Navbar() {
   return (
     <header className="fixed top-0 inset-x-0 z-50 glass border-b border-border">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* Logo */}
         <Link href={isPartner ? "/partner/dashboard" : "/"} className="flex items-center gap-2 group">
           <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center brand-glow-sm group-hover:scale-105 transition-transform">
             <Scissors className="w-4 h-4 text-brand-foreground" />
@@ -110,7 +108,6 @@ export function Navbar() {
           )}
         </Link>
 
-        {/* Desktop Nav */}
         {!isAuth && (
           <nav className="hidden md:flex items-center gap-1">
             {links.map((link) => (
@@ -130,13 +127,11 @@ export function Navbar() {
           </nav>
         )}
 
-        {/* Actions */}
         <div className="hidden md:flex items-center gap-3">
           {!isAuth && (
             <>
               {user ? (
                 <div className="relative" ref={dropdownRef}>
-                  {/* Trigger */}
                   <button
                     onClick={() => setDropdownOpen(!dropdownOpen)}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-surface-elevated transition-colors"
@@ -159,10 +154,8 @@ export function Navbar() {
                     />
                   </button>
 
-                  {/* Dropdown Panel */}
                   {dropdownOpen && (
                     <div className="absolute right-0 top-full mt-2 w-56 bg-surface border border-border-solid rounded-2xl shadow-xl overflow-hidden z-50">
-                      {/* Identity header */}
                       <div className="px-4 py-3 border-b border-border-solid">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-brand/10 text-brand uppercase tracking-wider">
@@ -173,7 +166,6 @@ export function Navbar() {
                         <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                       </div>
 
-                      {/* Links */}
                       <div className="py-1">
                         {getDropdownItems(user.role).map((item) => (
                           <Link
@@ -188,7 +180,6 @@ export function Navbar() {
                         ))}
                       </div>
 
-                      {/* Logout */}
                       <div className="border-t border-border-solid py-1">
                         <button
                           onClick={handleLogout}
@@ -224,7 +215,6 @@ export function Navbar() {
           )}
         </div>
 
-        {/* Mobile menu button */}
         {!isAuth && (
           <button
             className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground"
@@ -236,7 +226,6 @@ export function Navbar() {
         )}
       </div>
 
-      {/* Mobile Menu */}
       {mobileOpen && !isAuth && (
         <div className="md:hidden border-t border-border bg-surface px-6 py-4 flex flex-col gap-2">
           {links.map((link) => (

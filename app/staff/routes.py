@@ -1,6 +1,6 @@
 import uuid
 from typing import List
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
 from app.staff.schemas import StaffCreate, StaffUpdate, StaffRead
@@ -24,15 +24,21 @@ async def list_staff(
 
 
 @router.get("/salon/{salon_id}", response_model=List[StaffRead])
-async def list_staff_by_salon(salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def list_staff_by_salon(
+    salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     return await svc.get_staff_by_salon(salon_id, session)
 
 
 @router.get("/user/{user_id}", response_model=StaffRead)
-async def get_staff_by_user(user_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_staff_by_user(
+    user_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     staff = await svc.get_staff_by_user_id(user_id, session)
     if not staff:
-        raise HTTPException(status_code=404, detail="Staff record not found for this user")
+        raise HTTPException(
+            status_code=404, detail="Staff record not found for this user"
+        )
     return staff
 
 
@@ -44,21 +50,28 @@ async def get_staff(staff_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     return staff
 
 
-@router.post("/", response_model=StaffRead, status_code=201, dependencies=[Depends(owner_admin_only)])
+@router.post(
+    "/",
+    response_model=StaffRead,
+    status_code=201,
+    dependencies=[Depends(owner_admin_only)],
+)
 async def create_staff(
-    data: StaffCreate, 
+    data: StaffCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     return await svc.create_staff(data, session, current_user)
 
 
-@router.patch("/{staff_id}", response_model=StaffRead, dependencies=[Depends(owner_admin_only)])
+@router.patch(
+    "/{staff_id}", response_model=StaffRead, dependencies=[Depends(owner_admin_only)]
+)
 async def update_staff(
-    staff_id: uuid.UUID, 
-    data: StaffUpdate, 
+    staff_id: uuid.UUID,
+    data: StaffUpdate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     staff = await svc.update_staff(staff_id, data, session, current_user)
     if not staff:
@@ -68,9 +81,9 @@ async def update_staff(
 
 @router.delete("/{staff_id}", status_code=204, dependencies=[Depends(owner_admin_only)])
 async def delete_staff(
-    staff_id: uuid.UUID, 
+    staff_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     deleted = await svc.delete_staff(staff_id, session, current_user)
     if not deleted:
@@ -83,15 +96,19 @@ async def upload_staff_avatar(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     staff = await svc.get_staff_by_id(staff_id, session)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
 
     salon = await session.get(Salon, staff.salon_id)
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this staff member")
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to modify this staff member"
+        )
 
     from app.tasks.dispatch import queue_image_upload
 

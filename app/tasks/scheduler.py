@@ -1,18 +1,5 @@
-"""APScheduler setup — runs in-process when USE_CELERY=False.
+"""APScheduler setup — used in-process when USE_CELERY=False."""
 
-Mirrors the Celery beat schedule in ``celery_app.py``. Both worlds stay in
-sync at the level of the underlying async impls:
-
-    _check_and_send_reminders   (every 10 min)
-    _mark_no_shows              (every 15 min)
-    _cancel_stale_pending       (every 15 min)
-
-These are the SAME functions Celery's @task wrappers call, so changing the
-business logic in periodic_tasks.py updates both modes simultaneously.
-
-Started/stopped from ``main.lifespan``; a no-op when settings.USE_CELERY is
-True (the worker container drives beat instead).
-"""
 from __future__ import annotations
 
 import logging

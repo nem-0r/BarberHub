@@ -47,26 +47,21 @@ export function PartnerSidebar() {
   const [user, setUser] = useState<any>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  // Read cached user once on mount. The dashboard page keeps this fresh in localStorage
-  // via useMeQuery, so we don't need to refetch here.
   useEffect(() => {
     const userStr = localStorage.getItem("user")
     if (!userStr) return
     try {
       setUser(JSON.parse(userStr))
     } catch {
-      // corrupt cache — ignore, page-level guards will redirect to /login
+      // ignore corrupt cache
     }
   }, [])
 
   const isStaff = user?.role === "staff"
   const isOwner = user?.role === "owner" || user?.role === "admin"
 
-  // Owner path: salon by owner id (cache shared with dashboard root).
   const ownerSalonQuery = useSalonByOwnerQuery(isOwner ? user?.id : null)
 
-  // Staff path: user → staff profile → salon (each step shares cache with the
-  // schedule/dashboard pages — no duplicate requests when navigating).
   const staffQuery = useStaffByUserQuery(isStaff ? user?.id : null)
   const staffSalonId = staffQuery.data?.salonId
   const staffSalonQuery = useSalonByIdQuery(isStaff ? staffSalonId : null)
@@ -81,7 +76,6 @@ export function PartnerSidebar() {
 
   return (
     <>
-      {/* Mobile hamburger — visible only below lg */}
       <button
         className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-xl bg-sidebar border border-sidebar-border text-foreground shadow-md"
         onClick={() => setMobileOpen((v) => !v)}
@@ -90,7 +84,6 @@ export function PartnerSidebar() {
         {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
-      {/* Mobile backdrop */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-black/50"
@@ -103,7 +96,6 @@ export function PartnerSidebar() {
       "lg:translate-x-0",
       mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
     )}>
-      {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
         <Link href="/partner/dashboard" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
           <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
@@ -115,7 +107,6 @@ export function PartnerSidebar() {
         </Link>
       </div>
 
-      {/* Salon Name / Info */}
       <div className="p-4 mx-4 mt-4 rounded-xl bg-sidebar-accent border border-sidebar-border">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-gold/20 flex items-center justify-center">
@@ -132,7 +123,6 @@ export function PartnerSidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href
@@ -155,7 +145,6 @@ export function PartnerSidebar() {
         })}
       </nav>
 
-      {/* Bottom Actions */}
       <div className="p-4 border-t border-sidebar-border space-y-1">
         <Link
           href="/"

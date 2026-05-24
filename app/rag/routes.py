@@ -1,7 +1,5 @@
-"""
-POST /api/chat — BarberHub RAG chatbot endpoint.
-POST /api/chat/stream — same, but streams tokens via Server-Sent Events.
-"""
+"""RAG chatbot endpoints."""
+
 from __future__ import annotations
 
 import json
@@ -91,8 +89,7 @@ async def chat_stream(request: Request, body: ChatRequest):
             payload = {"kind": "error", "message": f"{type(exc).__name__}: {exc}"}
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-    # X-Accel-Buffering disables nginx response buffering if behind a proxy — tokens
-    # must arrive as they're produced, not in one big chunk at the end.
+    # X-Accel-Buffering: disable nginx response buffering behind a proxy.
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_session
 from app.services.schemas import ServiceCreate, ServiceUpdate, ServiceRead
@@ -23,37 +23,52 @@ async def list_services(
     session: AsyncSession = Depends(get_session),
     pagination: dict = Depends(pagination_params),
 ):
-    return await svc.get_all_services(session, min_price, max_price, sort_by, order, **pagination)
+    return await svc.get_all_services(
+        session, min_price, max_price, sort_by, order, **pagination
+    )
 
 
 @router.get("/salon/{salon_id}", response_model=List[ServiceRead])
-async def list_services_by_salon(salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def list_services_by_salon(
+    salon_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     return await svc.get_services_by_salon(salon_id, session)
 
 
 @router.get("/{service_id}", response_model=ServiceRead)
-async def get_service(service_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_service(
+    service_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
     service = await svc.get_service_by_id(service_id, session)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     return service
 
 
-@router.post("/", response_model=ServiceRead, status_code=201, dependencies=[Depends(owner_admin_only)])
+@router.post(
+    "/",
+    response_model=ServiceRead,
+    status_code=201,
+    dependencies=[Depends(owner_admin_only)],
+)
 async def create_service(
-    data: ServiceCreate, 
+    data: ServiceCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     return await svc.create_service(data, session, current_user)
 
 
-@router.patch("/{service_id}", response_model=ServiceRead, dependencies=[Depends(owner_admin_only)])
+@router.patch(
+    "/{service_id}",
+    response_model=ServiceRead,
+    dependencies=[Depends(owner_admin_only)],
+)
 async def update_service(
-    service_id: uuid.UUID, 
-    data: ServiceUpdate, 
+    service_id: uuid.UUID,
+    data: ServiceUpdate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     service = await svc.update_service(service_id, data, session, current_user)
     if not service:
@@ -61,11 +76,13 @@ async def update_service(
     return service
 
 
-@router.delete("/{service_id}", status_code=204, dependencies=[Depends(owner_admin_only)])
+@router.delete(
+    "/{service_id}", status_code=204, dependencies=[Depends(owner_admin_only)]
+)
 async def delete_service(
-    service_id: uuid.UUID, 
+    service_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     deleted = await svc.delete_service(service_id, session, current_user)
     if not deleted:

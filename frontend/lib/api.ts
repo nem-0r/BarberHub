@@ -1,16 +1,13 @@
-/** Parse FastAPI/Pydantic error responses into a human-readable string. */
 function parseApiError(body: any, fallback = "Request failed"): string {
   if (!body) return fallback
   const detail = body.detail
   if (!detail) return body.message || fallback
-  // Pydantic v2 validation errors → array of {loc, msg, type}
   if (Array.isArray(detail)) {
     return detail.map((e: any) => {
       const loc = Array.isArray(e.loc) ? e.loc.filter((l: any) => l !== "body").join(".") : ""
       return loc ? `${loc}: ${e.msg}` : e.msg
     }).join("; ")
   }
-  // Structured object with code (e.g. EMAIL_NOT_VERIFIED)
   if (typeof detail === "object" && detail.code) {
     const err = new Error(detail.message || fallback) as any
     err.code = detail.code
@@ -19,14 +16,12 @@ function parseApiError(body: any, fallback = "Request failed"): string {
   return String(detail)
 }
 
-/** Build an Error annotated with HTTP status + (optional) auth code, for callers to branch on. */
 async function buildHttpError(res: Response, fallback: string): Promise<Error> {
   const body = await res.json().catch(() => null)
   let message: string
   try {
     message = parseApiError(body, `${fallback} (HTTP ${res.status})`)
   } catch (structured) {
-    // parseApiError throws for {detail: {code, message}} payloads — surface those directly
     return structured as Error
   }
   const err = new Error(message) as any
@@ -38,11 +33,6 @@ async function buildHttpError(res: Response, fallback: string): Promise<Error> {
 
 export const getApiBaseUrl = () => {
   const envUrl = process.env.NEXT_PUBLIC_API_URL
-  // Prod (Vercel): NEXT_PUBLIC_API_URL points at the Render backend — return as-is.
-  // Local dev: env unset OR points at localhost. In a browser we used to
-  // synthesize `${origin}:8000`, but on Vercel that produces e.g.
-  // `https://barberhub.vercel.app:8000` which doesn't route anywhere. Only
-  // apply the synthesized URL when actually loaded on localhost.
   if (envUrl && !envUrl.includes("localhost")) return envUrl
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
     return `${window.location.protocol}//${window.location.hostname}:8000`
@@ -54,18 +44,6 @@ const API_BASE_URL = getApiBaseUrl()
 if (process.env.NODE_ENV !== "production") {
   console.log("[API] Base URL configured as:", API_BASE_URL)
 }
-
-/* ──────────────────────────────────────────────────────────────────────────
- * Auth layer
- *
- * Access token: short-lived (30 min), held in JS (localStorage for reload
- * persistence). Refresh token: long-lived, in an httpOnly cookie the browser
- * sends automatically to /users/refresh — invisible to JS, so XSS can steal at
- * most a 30-min access token, not a 30-day session.
- *
- * apiFetch() transparently retries once on 401 by calling /users/refresh.
- * Concurrent 401s share a single in-flight refresh (no thundering herd).
- * ────────────────────────────────────────────────────────────────────────── */
 
 let inMemoryToken: string | null = null
 
@@ -91,7 +69,7 @@ function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = fetch(`${API_BASE_URL}/users/refresh`, {
       method: "POST",
-      credentials: "include", // send the httpOnly refresh cookie
+      credentials: "include",
     })
       .then(async (r) => {
         if (!r.ok) return null
@@ -115,10 +93,6 @@ async function apiFetch(
   const doFetch = (bearer: string | null): Promise<Response> => {
     const headers = new Headers(init.headers || {})
     if (opts.auth && bearer) headers.set("Authorization", `Bearer ${bearer}`)
-    // credentials: "include" is required cross-origin so the browser sends the
-    // httpOnly refresh cookie on every call — without it, the 401→/refresh
-    // path can't get a fresh token and the user is silently logged out on
-    // every cold-start once the 30-min access token expires.
     return fetch(`${API_BASE_URL}${path}`, {
       credentials: "include",
       ...init,
@@ -134,7 +108,7 @@ async function apiFetch(
     if (fresh) {
       res = await doFetch(fresh)
     } else {
-      clearToken() // refresh failed → genuinely logged out
+      clearToken()
     }
   }
   return res
@@ -189,7 +163,6 @@ export interface Review {
 
 export const CITIES = ["All Cities", "Almaty", "Astana", "Shymkent", "Karaganda", "Aktobe", "Taraz", "Pavlodar", "Ust-Kamenogorsk", "Semey", "Atyrau", "Kostanay", "Kyzylorda", "Aktau", "Uralsk", "Petropavl", "Turkistan"]
 
-// Transformers to map Backend (snake_case) to Frontend (camelCase)
 export const transformSalon = (data: any) => ({
   id: data.id,
   name: data.name,
@@ -203,8 +176,6 @@ export const transformSalon = (data: any) => ({
   openUntil: data.open_until || "9:00 PM",
   tags: data.tags || [],
   description: data.description || "",
-  // IANA tz — REQUIRED for correct salon-local↔UTC booking conversion.
-  // Dropping it made the booking page send picked time as UTC (5h shift).
   timezone: data.timezone || "Asia/Almaty",
   phone: data.phone || "",
 })
@@ -212,14 +183,13 @@ export const transformSalon = (data: any) => ({
 export const transformBarber = (data: any) => ({
   id: data.id,
   user_id: data.user_id,
-  name: data.full_name || "Unknown Barber", // Note: Name comes from User join
+  name: data.full_name || "Unknown Barber",
   avatar: data.image_url || data.avatar_url || "/images/placeholder-avatar.jpg",
   role: data.position || "Barber",
   salonId: data.salon_id,
   rating: data.rating || 5.0,
   specialties: data.specialties || [],
   yearsExperience: data.years_experience || 0,
-  // Map backend's is_active (bool) to the status field used by StaffPage
   status: data.is_active !== false ? "active" : "off",
   email: data.email || "",
   phone: data.phone || "",
@@ -237,7 +207,6 @@ export const transformService = (data: any) => ({
   isActive: data.is_active ?? true,
 })
 
-// API Methods
 export const api = {
   async getSalons() {
     const res = await fetch(`${API_BASE_URL}/salons/`)
@@ -289,7 +258,7 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/users/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include", // store the refresh cookie
+      credentials: "include",
       body: JSON.stringify(credentials)
     })
     if (!res.ok) {
@@ -305,7 +274,7 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/users/oauth/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include", // store the refresh cookie
+      credentials: "include",
       body: JSON.stringify({ id_token: idToken })
     })
     if (!res.ok) {
@@ -317,12 +286,10 @@ export const api = {
     return data
   },
 
-  /** Manually exchange the refresh cookie for a new access token. */
   async refresh(): Promise<string | null> {
     return refreshAccessToken()
   },
 
-  /** Revoke the session server-side (blocks tokens, clears refresh cookie). */
   async logout() {
     try {
       await apiFetch(`/users/logout`, {
@@ -330,7 +297,7 @@ export const api = {
         credentials: "include",
       }, { auth: true })
     } catch {
-      // best-effort — clear local state regardless
+      // best-effort
     }
     clearToken()
     if (typeof window !== "undefined") localStorage.removeItem("user")

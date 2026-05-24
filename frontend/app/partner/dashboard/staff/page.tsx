@@ -99,7 +99,6 @@ export default function StaffPage() {
           return
         }
         const user = JSON.parse(userStr)
-        // Only owner / admin can manage the salon's staff list
         if (user.role !== "owner" && user.role !== "admin") {
           router.replace("/partner/dashboard")
           return
@@ -134,7 +133,6 @@ export default function StaffPage() {
         specialties: newStaff.specialties.split(",").map(s => s.trim())
       }, token)
       
-      // Refresh list
       const staffData = await api.getBarbersBySalonId(salon.id)
       setStaff(staffData)
       setShowAddModal(false)
@@ -177,7 +175,6 @@ export default function StaffPage() {
     }
   }
 
-  // ── Services-per-barber assignment ────────────────────────────────────────
   const [svcModalStaff, setSvcModalStaff] = useState<StaffMember | null>(null)
   const [salonServices, setSalonServices] = useState<any[]>([])
   const [svcRows, setSvcRows] = useState<
@@ -187,7 +184,6 @@ export default function StaffPage() {
   const [svcSaving, setSvcSaving] = useState(false)
 
   async function openServicesModal(member: StaffMember) {
-    // Reset so a failed load can never show the previous barber's rows.
     setSalonServices([])
     setSvcRows({})
     setSvcModalStaff(member)
@@ -224,8 +220,6 @@ export default function StaffPage() {
   async function saveServices() {
     if (!svcModalStaff) return
 
-    // Pre-validate ALL prices before any write, so a bad input can't leave a
-    // half-saved set.
     for (const s of salonServices) {
       const row = svcRows[s.id]
       if (!row || !row.assigned) continue
@@ -243,8 +237,6 @@ export default function StaffPage() {
     if (!token) { toast.error("Not authenticated. Please log in again."); return }
 
     setSvcSaving(true)
-    // Commit row-by-row into `next` so that on a mid-loop failure a retry only
-    // re-sends what's still pending (assign is an idempotent upsert anyway).
     const next = { ...svcRows }
     let failed: string | null = null
     for (const s of salonServices) {
@@ -293,7 +285,6 @@ export default function StaffPage() {
       <PartnerSidebar />
 
       <main className="lg:ml-64 p-8">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display font-bold text-3xl text-foreground">
@@ -312,7 +303,6 @@ export default function StaffPage() {
           </button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <div className="bento-card">
             <p className="text-sm text-muted-foreground mb-1">Total Staff</p>
@@ -337,14 +327,12 @@ export default function StaffPage() {
           </div>
         </div>
 
-        {/* Staff Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {staff.map((member) => (
             <div
               key={member.id}
               className="bento-card relative group"
             >
-              {/* Actions Menu */}
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="flex items-center gap-1">
                   <button
@@ -369,7 +357,6 @@ export default function StaffPage() {
                 </div>
               </div>
 
-              {/* Profile */}
               <div className="flex items-center gap-4 mb-4">
                 <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-border-solid">
                   <Image
@@ -393,7 +380,6 @@ export default function StaffPage() {
                 </div>
               </div>
 
-              {/* Status */}
               <div className="flex items-center justify-between mb-4">
                 <button
                   onClick={() => toggleStatus(member)}
@@ -413,7 +399,6 @@ export default function StaffPage() {
                 )}
               </div>
 
-              {/* Specialties */}
               <div className="flex flex-wrap gap-1 mb-4">
                 {member.specialties.map((spec) => (
                   <span
@@ -425,7 +410,6 @@ export default function StaffPage() {
                 ))}
               </div>
 
-              {/* Contact */}
               <div className="text-sm text-muted-foreground space-y-1 border-t border-border-solid pt-4">
                 <p className="truncate">{member.email}</p>
               </div>
@@ -434,7 +418,6 @@ export default function StaffPage() {
         </div>
       </main>
 
-      {/* Add Staff Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -556,7 +539,6 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Manage Services Modal */}
       {svcModalStaff && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div

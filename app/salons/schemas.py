@@ -52,8 +52,7 @@ class SalonRead(SQLModel):
     operating_hours: Optional[dict]
     image_url: Optional[str]
     is_active: bool
-    
-    # Computed fields (populated in service)
+
     is_open: bool = True
     open_until: Optional[str] = None
 
