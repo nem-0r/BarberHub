@@ -125,7 +125,6 @@ export default function AdminDashboard() {
       <Navbar />
 
       <div className="max-w-7xl mx-auto px-6 pt-24 pb-16">
-        {/* Page Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <p className="text-brand text-xs font-semibold tracking-widest uppercase mb-1">Admin Panel</p>
@@ -141,7 +140,6 @@ export default function AdminDashboard() {
           </Link>
         </div>
 
-        {/* Bento Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {METRIC_CARDS.map((card, i) => (
             <div key={i} className="bento-card hover:border-brand/20 transition-all">
@@ -164,9 +162,7 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Charts Row */}
         <div className="grid lg:grid-cols-3 gap-4 mb-6">
-          {/* Revenue Chart */}
           <div className="lg:col-span-2 bento-card">
             <div className="flex items-center justify-between mb-5">
               <div>
@@ -195,7 +191,6 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           </div>
 
-          {/* Services Chart */}
           <div className="bento-card">
             <div className="flex items-center justify-between mb-5">
               <div>
@@ -214,7 +209,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Staff Overview */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[
             { name: "Marcus J.", img: "/images/barber-1.jpg", role: "Senior Barber", status: "busy", today: 5, rating: 4.9 },
@@ -245,7 +239,6 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Bookings Table */}
         <div className="bento-card p-0 overflow-hidden">
           <div className="px-6 py-5 border-b border-border-solid flex items-center justify-between">
             <div>

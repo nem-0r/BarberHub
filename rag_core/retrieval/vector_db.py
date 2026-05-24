@@ -1,23 +1,9 @@
-"""Vector store facade.
+"""Vector store facade: ChromaDB (legacy) or pgvector, selected by settings.RAG_BACKEND.
 
-Public surface (DO NOT change signatures — pipeline/service/entrypoint/eval
-depend on exactly these four):
-
-    get_client()                              -> backend handle (warmup)
-    index_chunks(chunks, strategy)            -> None
-    query_db(query, strategy, top_k)          -> list[{text, score, metadata}]
-    collection_stats()                        -> {"chunks_fixed": n, "chunks_recursive": m}
-
-Two backends behind the facade, selected by settings.RAG_BACKEND:
-
-  * "chroma"   — legacy embedded ChromaDB (files inside the API process;
-                 not horizontally scalable). Kept for instant rollback.
-  * "pgvector" — vectors in Postgres/Supabase → the API becomes stateless.
-
-The score contract is identical across backends: cosine similarity in
-[0, 1], filtered by _MIN_RELEVANCE_SCORE. BGE-M3 embeddings are
-L2-normalized, so 1 - cosine_distance is the cosine similarity in both.
+Public API: get_client(), index_chunks(), query_db(), collection_stats().
+Score contract: cosine similarity in [0, 1], filtered by _MIN_RELEVANCE_SCORE.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,14 +26,12 @@ def _backend() -> str:
 
 
 def _build_metadata(c: Chunk, strategy: str) -> dict:
-    """Single source of truth for chunk metadata shape — both backends
-    must store/return exactly this so downstream code is backend-agnostic."""
     return {
-        "source_file":    c.metadata.get("source_file", ""),
-        "title":          c.metadata.get("title", ""),
-        "date":           c.metadata.get("date", ""),
-        "doc_type":       c.metadata.get("doc_type", ""),
-        "chunk_index":    c.chunk_index,
+        "source_file": c.metadata.get("source_file", ""),
+        "title": c.metadata.get("title", ""),
+        "date": c.metadata.get("date", ""),
+        "doc_type": c.metadata.get("doc_type", ""),
+        "chunk_index": c.chunk_index,
         "chunk_strategy": strategy,
     }
 
@@ -67,7 +51,6 @@ _CHROMA_PATH = str(Path(__file__).parent.parent / "chroma_data")
 def _get_chroma_client():
     global _chroma_client
     if _chroma_client is None:
-        # Lazy import so a pgvector-only deploy can drop the chromadb dep.
         import chromadb
         from chromadb.config import Settings as ChromaSettings
 
@@ -110,7 +93,9 @@ def _chroma_index_chunks(chunks: list[Chunk], strategy: str) -> None:
 def _chroma_query_db(query: str, strategy: str, top_k: int) -> list[dict]:
     collection = _get_chroma_collection(strategy)
     if collection.count() == 0:
-        raise RuntimeError(f"Collection '{strategy}' is empty. Run build_index.py first.")
+        raise RuntimeError(
+            f"Collection '{strategy}' is empty. Run build_index.py first."
+        )
 
     vector = embed_query(query)
     results = collection.query(
@@ -149,18 +134,10 @@ _pg_engine = None
 
 
 def _get_pg_engine():
-    """Dedicated SYNCHRONOUS engine for the RAG layer.
+    """Synchronous psycopg2 engine for RAG queries and build_index.
 
-    query_db is called from sync code (rag_pipeline._cached_retrieve, bridged
-    to async via a thread) and from the build_index script. Reusing the app's
-    asyncpg engine here would mean "event loop already running". A tiny
-    separate psycopg2 pool keeps the two worlds isolated; RAG queries are rare
-    and lru_cached, so 2 connections are plenty.
-
-    Prefers MIGRATION_DATABASE_URL (direct port 5432) over DATABASE_URL
-    (pooler 6543 in transaction mode). psycopg2 + pgbouncer transaction mode
-    breaks on `INSERT ... ON CONFLICT` batches and long transactions used by
-    build_index. Direct connection sidesteps the pooler entirely.
+    Prefers MIGRATION_DATABASE_URL (direct port) to avoid pgbouncer
+    transaction-mode issues with batched INSERTs.
     """
     global _pg_engine
     if _pg_engine is None:
@@ -179,8 +156,7 @@ def _get_pg_engine():
 
 
 def _vec_literal(vec) -> str:
-    """pgvector accepts a bracketed text literal cast to ::vector — avoids a
-    hard dependency on the pgvector psycopg adapter for parameter binding."""
+    """Format a vector as a pgvector text literal."""
     return "[" + ",".join(f"{float(x):.8f}" for x in vec) + "]"
 
 
@@ -192,8 +168,6 @@ def _pg_index_chunks(chunks: list[Chunk], strategy: str) -> None:
     vectors = embed(texts)
 
     if len(vectors) != len(chunks):
-        # Defensive — `zip` would silently drop the tail. Better to surface
-        # the mismatch loudly so we know the embedder is misbehaving.
         raise RuntimeError(
             f"embed() returned {len(vectors)} vectors for {len(chunks)} chunks "
             "— refusing to upsert truncated data."
@@ -208,13 +182,15 @@ def _pg_index_chunks(chunks: list[Chunk], strategy: str) -> None:
                 f"(settings.EMBEDDING_DIM). Embedder, EMBEDDING_DIM and the "
                 "pgvector column width must all move together."
             )
-        rows.append({
-            "id": _chunk_id(c, strategy),
-            "strategy": strategy,
-            "text": c.text,
-            "embedding": _vec_literal(v),
-            "metadata": _json_dumps(_build_metadata(c, strategy)),
-        })
+        rows.append(
+            {
+                "id": _chunk_id(c, strategy),
+                "strategy": strategy,
+                "text": c.text,
+                "embedding": _vec_literal(v),
+                "metadata": _json_dumps(_build_metadata(c, strategy)),
+            }
+        )
 
     stmt = sql(
         """
@@ -251,9 +227,6 @@ def _pg_query_db(query: str, strategy: str, top_k: int) -> list[dict]:
             )
 
         qvec_raw = embed_query(query)
-        # Same dim check as the ingest path — without it, a settings /
-        # provider / migration mismatch surfaces as a generic pgvector error
-        # instead of the clear "dim X != Y" message.
         if len(qvec_raw) != settings.EMBEDDING_DIM:
             raise ValueError(
                 f"embed_query() returned dim {len(qvec_raw)} != "
@@ -261,7 +234,6 @@ def _pg_query_db(query: str, strategy: str, top_k: int) -> list[dict]:
                 "Embedder provider and pgvector column width are out of sync."
             )
         qvec = _vec_literal(qvec_raw)
-        # 1 - cosine_distance == cosine similarity (embeddings normalized).
         rows = conn.execute(
             sql(
                 """
@@ -281,7 +253,9 @@ def _pg_query_db(query: str, strategy: str, top_k: int) -> list[dict]:
     for r in rows:
         score = round(float(r.score), 4)
         if score >= _MIN_RELEVANCE_SCORE:
-            meta = r.metadata if isinstance(r.metadata, dict) else _json_loads(r.metadata)
+            meta = (
+                r.metadata if isinstance(r.metadata, dict) else _json_loads(r.metadata)
+            )
             hits.append({"text": r.text, "score": score, "metadata": meta})
     return hits
 
@@ -299,19 +273,20 @@ def _pg_collection_stats() -> dict:
                 key = f"chunks_{strategy}"
                 if key in stats:
                     stats[key] = cnt
-    except Exception as exc:  # table missing / DB down → treat as empty
+    except Exception as exc:
         logger.warning("pgvector collection_stats failed: %s", exc)
     return stats
 
 
-# Small JSON helpers kept local so the module has no extra import surface.
 def _json_dumps(d: dict) -> str:
     import json
+
     return json.dumps(d, ensure_ascii=False)
 
 
 def _json_loads(s):
     import json
+
     return json.loads(s)
 
 
@@ -319,11 +294,12 @@ def _json_loads(s):
 # Public facade — dispatch on settings.RAG_BACKEND
 # ===========================================================================
 
+
 def get_client():
-    """Backend handle, touched during warmup (app/rag/service.py).
-    For pgvector this also verifies the connection works."""
+    """Return backend handle; verifies connection for pgvector."""
     if _backend() == "pgvector":
         from sqlalchemy import text as sql
+
         engine = _get_pg_engine()
         with engine.connect() as conn:
             conn.execute(sql("SELECT 1"))

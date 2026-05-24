@@ -22,22 +22,28 @@ class Booking(SQLModel, table=True):
     client_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
     staff_id: uuid.UUID = Field(foreign_key="staff.id", nullable=False, index=True)
     service_id: uuid.UUID = Field(foreign_key="services.id", nullable=False, index=True)
-    start_time: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, index=True))
-    end_time: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
-    final_price: Decimal = Field(
-        sa_column=sa.Column(sa.Numeric(10, 2), nullable=False)
+    start_time: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, index=True)
     )
+    end_time: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False)
+    )
+    final_price: Decimal = Field(sa_column=sa.Column(sa.Numeric(10, 2), nullable=False))
     status: BookingStatus = Field(
         sa_column=sa.Column(
-            sa.Enum(BookingStatus), nullable=False, default=BookingStatus.pending, index=True
+            sa.Enum(BookingStatus),
+            nullable=False,
+            default=BookingStatus.pending,
+            index=True,
         )
     )
     created_at: datetime = Field(
-        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, default=sa.func.now()),
-        default_factory=lambda: datetime.now(timezone.utc)
+        sa_column=sa.Column(
+            sa.DateTime(timezone=True), nullable=False, default=sa.func.now()
+        ),
+        default_factory=lambda: datetime.now(timezone.utc),
     )
 
-    # Relationships
     client: Optional["User"] = Relationship(
         back_populates="bookings",
         sa_relationship_kwargs={"lazy": "noload"},

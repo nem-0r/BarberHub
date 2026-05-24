@@ -30,11 +30,8 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
   const queryClient = useQueryClient()
   const [completing, setCompleting] = useState<string | null>(null)
 
-  // Token is read once per action; the queries themselves don't need it for
-  // the staff profile fetch (public-by-id endpoint).
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
 
-  // Cache-shared with sidebar/schedule page — no duplicate request.
   const staffProfileQuery = useStaffByUserQuery(salon ? user?.id : null)
   const staffProfile = staffProfileQuery.data
   const bookingsQuery = useBookingsForStaffQuery(staffProfile?.id, token)
@@ -62,7 +59,6 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
     }
   }
 
-  // First-paint loading: only block when we have nothing to show yet.
   const initialLoading =
     !!salon &&
     ((staffProfileQuery.isLoading && !staffProfile) ||
@@ -89,8 +85,6 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
     )
   }
 
-  // "Today" is salon-local — comparing by salon TZ avoids midnight drift for
-  // staff in a different timezone than the salon.
   const salonTz = salon?.timezone
   const todayApts = appointments.filter(a => isSameSalonDay(a.start_time, a.salon_timezone ?? salonTz))
   const upcomingApts = appointments.filter(
@@ -110,7 +104,6 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
         </div>
       </div>
 
-      {/* Today's Focus */}
       <section className="space-y-4">
         <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
           <Clock className="w-5 h-5 text-brand" />
@@ -165,7 +158,6 @@ export function StaffDashboard({ user, salon }: StaffDashboardProps) {
         )}
       </section>
 
-      {/* Stats Summary — all from real data */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bento-card bg-brand/5 border-brand/10">
           <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Today</p>

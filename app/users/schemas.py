@@ -11,10 +11,6 @@ class UserCreate(SQLModel):
     password: str
     full_name: str
     phone: str
-    # New accounts may self-select between "client" (book appointments) and
-    # "owner" (own a salon and accept bookings). `admin` is a server-only
-    # privileged role and is rejected by the validator below. Default keeps
-    # the existing /users/ POST behaviour for normal client signup unchanged.
     role: UserRole = UserRole.client
 
     @field_validator("password")
@@ -29,8 +25,6 @@ class UserCreate(SQLModel):
     @field_validator("role")
     @classmethod
     def public_roles_only(cls, v: UserRole) -> UserRole:
-        # client / owner are public-facing self-service roles.
-        # admin and any future privileged role MUST be promoted server-side.
         if v not in (UserRole.client, UserRole.owner):
             raise ValueError("role must be either 'client' or 'owner'")
         return v
@@ -42,12 +36,10 @@ class UserLogin(SQLModel):
 
 
 class GoogleOAuthRequest(SQLModel):
-    """Google Identity Services credential — the id_token (JWT) returned to the browser."""
     id_token: str
 
 
 class UserUpdate(BaseModel):
-    """Partial update for user profile. All fields optional."""
     full_name: Optional[str] = None
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -92,17 +84,14 @@ class UserRead(SQLModel):
 
 
 class ForgotPasswordRequest(SQLModel):
-    """Password reset request schema."""
     email: EmailStr
 
 
 class ResendVerificationRequest(SQLModel):
-    """Resend the email-verification link for an existing account."""
     email: EmailStr
 
 
 class ResetPasswordConfirm(SQLModel):
-    """Password reset confirmation schema."""
     new_password: str
 
     @field_validator("new_password")

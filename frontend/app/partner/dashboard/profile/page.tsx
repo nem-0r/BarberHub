@@ -43,8 +43,6 @@ export default function ProfilePage() {
           setStaffRecord(staff)
         }
       } catch (err: any) {
-        // 401 from /users/me means token is revoked / user deleted — push to
-        // login instead of silently showing an empty profile form.
         if (err?.code === "UNAUTHORIZED" || err?.status === 401) {
           localStorage.removeItem("token")
           localStorage.removeItem("user")
@@ -91,7 +89,6 @@ export default function ProfilePage() {
       const token = localStorage.getItem("token")
       if (!token) return
 
-      // Show local preview immediately while Celery processes the upload in background
       const localPreviewUrl = URL.createObjectURL(file)
       setUser((prev: any) => prev ? { ...prev, avatar_url: localPreviewUrl } : prev)
 
@@ -133,7 +130,6 @@ export default function ProfilePage() {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left: Avatar & Identity */}
             <div className="lg:col-span-1 space-y-6">
               <div className="bento-card text-center py-8">
                 <div className="relative w-32 h-32 mx-auto mb-4">
@@ -164,7 +160,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Right: Settings Form */}
             <div className="lg:col-span-2 space-y-6">
               <div className="bento-card">
                 <h3 className="text-xl font-bold text-foreground mb-6">Personal Information</h3>

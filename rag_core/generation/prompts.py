@@ -26,7 +26,6 @@ Context passages:
 {context}
 """
 
-# Maximum characters per history message to keep the prompt compact
 _HISTORY_MSG_MAX_CHARS = 400
 
 
@@ -44,11 +43,9 @@ def build_prompt(
     context_str = "\n\n---\n\n".join(context_parts)
     system = SYSTEM_PROMPT.format(context=context_str)
 
-    # Prepend recent conversation history to the user message so Gemini
-    # has context from earlier turns without changing the retrieval query.
     if history:
         lines: list[str] = ["[Conversation history]"]
-        for msg in history[-6:]:  # cap at last 6 turns
+        for msg in history[-6:]:
             role_label = "User" if msg["role"] == "user" else "Assistant"
             text = msg["text"][:_HISTORY_MSG_MAX_CHARS]
             lines.append(f"{role_label}: {text}")

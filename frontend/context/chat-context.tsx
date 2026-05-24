@@ -16,7 +16,7 @@ export type Message = {
   role: "user" | "bot"
   text: string
   sources?: string[]
-  isError?: boolean  // error messages are excluded from history sent to the API
+  isError?: boolean
 }
 
 interface ChatContextValue {
@@ -42,9 +42,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
 
-  // Restore FAB position from localStorage, or default to bottom-right corner.
-  // Clamped to FAB_SIZE (not chat window width) — smart placement handles
-  // the chat window separately at render time.
   useEffect(() => {
     const FAB  = 56  // w-14 h-14
     const M    = 8   // margin from edges
@@ -59,7 +56,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         })
         return
       } catch {
-        // Corrupt data — fall through to default
+        // ignore corrupt data
       }
     }
 
@@ -74,8 +71,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => [...prev, withId])
   }, [])
 
-  // Patch the most recent bot message in place. Used by the streaming reader to
-  // append chunks and attach sources without re-rendering the whole list.
   const updateLastBotMessage = useCallback((patch: (msg: Message) => Message) => {
     setMessages((prev) => {
       for (let i = prev.length - 1; i >= 0; i--) {

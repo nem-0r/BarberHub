@@ -16,12 +16,10 @@ import {
   Radar, ResponsiveContainer,
 } from "recharts"
 
-// ── Skill definitions must match ml/evaluator.py ──────────────────────────────
+// must match ml/evaluator.py
 const SKILLS = [
-  // Foundation
   { id: "classic",     label: "Classic Haircut",     category: "basic"    },
   { id: "machine",     label: "Clipper Cut",          category: "basic"    },
-  // Core Techniques
   { id: "fade",        label: "Fade & Taper",         category: "advanced" },
   { id: "beard",       label: "Beard Sculpting",      category: "advanced" },
   { id: "razor",       label: "Straight Razor",       category: "advanced" },
@@ -29,13 +27,11 @@ const SKILLS = [
   { id: "hair_tattoo", label: "Hair Tattoo",          category: "advanced" },
   { id: "waxing",      label: "Waxing",               category: "advanced" },
   { id: "black_mask",  label: "Face Treatment",       category: "advanced" },
-  // Specialist Services
   { id: "coloring",    label: "Hair Coloring",        category: "expert"   },
   { id: "correction",  label: "Color Correction",     category: "expert"   },
   { id: "extensions",  label: "Hair Extensions",      category: "expert"   },
   { id: "camouflage",  label: "Hair Camouflage",      category: "expert"   },
   { id: "perm",        label: "Chemical Perm",        category: "expert"   },
-  // Client Services
   { id: "consulting",  label: "Style Consulting",     category: "soft"     },
   { id: "products",    label: "Product Knowledge",    category: "soft"     },
 ]
@@ -47,8 +43,7 @@ const SKILL_CATEGORIES = [
   { id: "soft",     label: "Client Services", color: "text-sky-400",    desc: "weight ×2" },
 ]
 
-// ── Average service time per standard haircut (fade / clipper — not coloring) ─
-// Real Kazakhstan barbershop benchmarks 2024-2025
+// Kazakhstan barbershop benchmarks 2024-2025
 const SERVICE_TIMES = [
   { id: "fast",     label: "Express",  desc: "≤ 30 мин",    hint: "8-10 клиентов/день", score: 100, color: "text-brand"      },
   { id: "normal",   label: "Standard", desc: "30 – 50 мин", hint: "6-8 клиентов/день",  score:  75, color: "text-gold"       },
@@ -58,7 +53,6 @@ const SERVICE_TIMES = [
 
 type ServiceTimeId = typeof SERVICE_TIMES[number]["id"]
 
-// ── API response type (snake_case matches FastAPI) ────────────────────────────
 type PredictionResult = {
   role:            string
   level:           string
@@ -76,7 +70,6 @@ type PredictionResult = {
 export default function MLPredictorPage() {
   const router = useRouter()
 
-  // Only owner/admin/staff may access this page.
   useEffect(() => {
     const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null
     const token   = typeof window !== "undefined" ? localStorage.getItem("token") : null
@@ -99,9 +92,8 @@ export default function MLPredictorPage() {
   const [error,          setError]          = useState<string | null>(null)
   const [animatedConf,   setAnimatedConf]   = useState(0)
 
-  // ── Derived values ────────────────────────────────────────────────────────
   const hasFoundation      = selectedSkills.some(s => s === "classic" || s === "machine")
-  // Recency coefficient: older courses (0%) count half; fully recent (100%) count fully
+  // older courses count half; recent courses count fully
   const effectiveEducation = Math.round(educationCount * (0.5 + 0.5 * recencyRatio))
   const activeSvcTime      = SERVICE_TIMES.find(t => t.id === serviceTime)!
   const effScore           = activeSvcTime.score
@@ -112,7 +104,6 @@ export default function MLPredictorPage() {
       prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
     )
 
-  // ── Animate confidence ring on result change ──────────────────────────────
   useEffect(() => {
     if (!result) return
     let current = 0
@@ -132,15 +123,12 @@ export default function MLPredictorPage() {
     ? circumference - (animatedConf / 100) * circumference
     : circumference
 
-  // ── Call real ML backend ──────────────────────────────────────────────────
   const handleAnalyze = async () => {
     setLoading(true)
     setResult(null)
     setError(null)
     setAnimatedConf(0)
     try {
-      // Route through `api.evaluateBarber` so the Bearer token + auto-refresh
-      // path applies — `/ml/evaluate-barber` requires `get_current_user`.
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
       if (!token) {
         throw new Error("Sign in to use the ML grader.")
@@ -149,7 +137,7 @@ export default function MLPredictorPage() {
         {
           years_experience_cat: experience,
           skills:               selectedSkills,
-          education_count:      effectiveEducation, // recency-adjusted
+          education_count:      effectiveEducation,
         },
         token,
       )
@@ -168,7 +156,6 @@ export default function MLPredictorPage() {
       <Navbar />
 
       <div className="max-w-7xl mx-auto px-6 pt-24 pb-16">
-        {/* Breadcrumb */}
         <div className="flex items-center gap-3 mb-2">
           <Link
             href="/partner/dashboard"
@@ -181,7 +168,6 @@ export default function MLPredictorPage() {
           <span className="text-sm text-foreground">ML Staff Grader</span>
         </div>
 
-        {/* Header */}
         <div className="flex items-start justify-between mb-8 mt-4">
           <div>
             <div className="flex items-center gap-2.5 mb-2">
@@ -200,10 +186,8 @@ export default function MLPredictorPage() {
           </div>
         </div>
 
-        {/* Two-column layout */}
         <div className="grid lg:grid-cols-2 gap-6">
 
-          {/* ── LEFT: Input Form ─────────────────────────────────────────── */}
           <div className="space-y-5">
 
             {/* Skills */}
@@ -248,7 +232,7 @@ export default function MLPredictorPage() {
                 ))}
               </div>
 
-              {/* Foundation qualifier warning */}
+              {/* foundation warning */}
               {selectedSkills.length > 0 && !hasFoundation && (
                 <div className="mt-4 flex items-start gap-2.5 p-3 rounded-xl border border-amber-500/40 bg-amber-500/5">
                   <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -315,7 +299,7 @@ export default function MLPredictorPage() {
                 ))}
               </div>
 
-              {/* Recency slider — visible when at least 1 course selected */}
+              {/* recency slider */}
               {educationCount > 0 && (
                 <div className="mt-5 pt-4 border-t border-border-solid">
                   <div className="flex items-center justify-between mb-2">
@@ -385,7 +369,6 @@ export default function MLPredictorPage() {
               </p>
             </div>
 
-            {/* Run button */}
             <button
               onClick={handleAnalyze}
               disabled={selectedSkills.length === 0 || loading}
@@ -422,7 +405,6 @@ export default function MLPredictorPage() {
             )}
           </div>
 
-          {/* ── RIGHT: Results ───────────────────────────────────────────── */}
           <div className="space-y-5">
 
             {/* Empty state */}
@@ -441,7 +423,6 @@ export default function MLPredictorPage() {
               </div>
             )}
 
-            {/* Error state */}
             {error && !loading && (
               <div className="bento-card border-destructive/30 bg-destructive/5 py-10 text-center">
                 <p className="font-bold text-destructive mb-2">Prediction Failed</p>
@@ -449,7 +430,6 @@ export default function MLPredictorPage() {
               </div>
             )}
 
-            {/* Loading state */}
             {loading && (
               <div className="bento-card py-20 flex flex-col items-center justify-center gap-5">
                 <div className="w-16 h-16 rounded-full border-2 border-brand/20 border-t-brand animate-spin" />
@@ -473,10 +453,8 @@ export default function MLPredictorPage() {
               </div>
             )}
 
-            {/* Result */}
             {result && !loading && (
               <>
-                {/* ── Not Qualified ──────────────────────────────────────── */}
                 {isUnqualified ? (
                   <div className="bento-card border-amber-500/30 bg-amber-500/5 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex items-start gap-4">
@@ -496,11 +474,9 @@ export default function MLPredictorPage() {
                     </div>
                   </div>
                 ) : (
-                  /* ── Qualified: role prediction card ─────────────────── */
                   <div className="bento-card border-brand/20 bg-gradient-to-br from-brand/8 to-surface animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex items-start gap-5">
-                      {/* Confidence ring */}
-                      <div className="flex-shrink-0 relative">
+                      <div className="flex-shrink-0">
                         <svg width="128" height="128" viewBox="0 0 128 128">
                           <circle cx="64" cy="64" r={R} fill="none"
                             stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
@@ -534,7 +510,6 @@ export default function MLPredictorPage() {
                           Predicted by BarberHub ML · RandomForest
                         </p>
 
-                        {/* Salary — KZT/month */}
                         <div className="mt-4 flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-elevated border border-border-solid">
                           <DollarSign className="w-4 h-4 text-brand" />
                           <div>
@@ -555,7 +530,6 @@ export default function MLPredictorPage() {
                   </div>
                 )}
 
-                {/* Business Efficiency card (always shown with result) */}
                 <div className="bento-card animate-in fade-in slide-in-from-bottom-4 duration-500 delay-75">
                   <h3 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
                     <Zap className="w-4 h-4 text-orange-400" />
@@ -593,7 +567,6 @@ export default function MLPredictorPage() {
                   </div>
                 </div>
 
-                {/* Analysis reasoning */}
                 <div className="bento-card animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
                   <h3 className="font-display font-bold text-base text-foreground mb-4 flex items-center gap-2">
                     <Target className="w-4 h-4 text-brand" />
@@ -624,7 +597,6 @@ export default function MLPredictorPage() {
                   </div>
                 </div>
 
-                {/* Path to next level / Top achieved / How to qualify */}
                 <div className="bento-card animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
                   <h3 className="font-display font-bold text-base text-foreground mb-3 flex items-center gap-2">
                     <ChevronRight className={cn(
@@ -657,7 +629,6 @@ export default function MLPredictorPage() {
                   </div>
                 </div>
 
-                {/* Skill radar */}
                 <div className="bento-card animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
                   <h3 className="font-display font-bold text-base text-foreground mb-1 flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-brand" />
@@ -685,7 +656,6 @@ export default function MLPredictorPage() {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Re-run */}
                 <button
                   onClick={() => { setResult(null); setError(null) }}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-border-solid text-muted-foreground text-sm hover:text-foreground hover:bg-surface-elevated transition-all"

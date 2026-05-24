@@ -1,6 +1,8 @@
 import builtins
+
 try:
     from pydantic import SecretStr
+
     builtins.SecretStr = SecretStr
 except ImportError:
     pass
@@ -20,7 +22,7 @@ celery_app = Celery(
         "app.tasks.email_tasks",
         "app.tasks.periodic_tasks",
         "app.tasks.image_tasks",
-    ]
+    ],
 )
 
 celery_app.conf.task_routes = {

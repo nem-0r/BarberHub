@@ -1,16 +1,8 @@
-"""Email-sending tasks.
+"""Email tasks: async _impl coroutines and Celery wrappers.
 
-Each task is exposed in two shapes:
-
-  * a plain async ``_impl`` coroutine (e.g. ``send_verification_email_impl``)
-    used by FastAPI BackgroundTasks when settings.USE_CELERY=False;
-  * a Celery task that wraps the coroutine via ``asyncio.run`` for the
-    docker-compose Celery+Redis worker.
-
-Call sites should NOT hit either directly — go through
-``app.tasks.dispatch.queue_*`` which picks the right path based on
-settings.USE_CELERY.
+Use app.tasks.dispatch.queue_* rather than calling these directly.
 """
+
 import asyncio
 import builtins
 import logging
@@ -43,9 +35,6 @@ conf = ConnectionConfig(
     VALIDATE_CERTS=True,
 )
 
-# Module-level Jinja env so templates load+compile once per worker, not per task.
-# autoescape protects against accidental injection if a value (e.g. salon_name)
-# contains user-controlled HTML.
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "email"
 _jinja_env = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -59,11 +48,9 @@ def _render(template_name: str, **context) -> str:
 
 import re as _re
 
-# Split timeouts so a slow connect can't add to a slow read budget; total wall
-# time is bounded at ~14s (5+5+0.1+5 with the OS's TCP-connect cap as the floor).
 _BREVO_TIMEOUT = None  # type: ignore[assignment]  # set lazily once httpx is imported
 
-# Strip HTML so Gmail's spam classifier isn't penalising an HTML-only payload.
+
 def _html_to_text(html: str) -> str:
     text = _re.sub(r"<\s*br\s*/?\s*>", "\n", html, flags=_re.I)
     text = _re.sub(r"</\s*p\s*>", "\n\n", text, flags=_re.I)
@@ -73,16 +60,9 @@ def _html_to_text(html: str) -> str:
 
 
 async def _send_mail_via_brevo_http(email: str, subject: str, body: str) -> None:
-    """POST to Brevo's Transactional Email API over HTTPS.
-
-    Used when settings.BREVO_API_KEY is set. Render Free silently drops
-    outbound SMTP on port 587 — this HTTPS path is the reliable workaround.
-
-    Retry policy: one extra attempt on transient errors (429 / 5xx / network).
-    Two attempts total is enough for the typical glitch without doubling
-    Brevo's quota burn on a legitimately rejected payload (4xx).
-    """
+    """Send via Brevo Transactional Email HTTP API. One retry on transient errors."""
     import httpx
+
     global _BREVO_TIMEOUT
     if _BREVO_TIMEOUT is None:
         _BREVO_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
@@ -97,12 +77,13 @@ async def _send_mail_via_brevo_http(email: str, subject: str, body: str) -> None
         "to": [{"email": email}],
         "subject": subject,
         "htmlContent": body,
-        # textContent fallback improves Gmail spam score and lets users with
-        # HTML-disabled clients still read the body.
         "textContent": _html_to_text(body),
     }
     if settings.MAIL_FROM:
-        payload["replyTo"] = {"email": settings.MAIL_FROM, "name": settings.MAIL_FROM_NAME}
+        payload["replyTo"] = {
+            "email": settings.MAIL_FROM,
+            "name": settings.MAIL_FROM_NAME,
+        }
 
     logger.info("Sending email via Brevo HTTP API to %s (subject=%s)", email, subject)
 
@@ -118,7 +99,9 @@ async def _send_mail_via_brevo_http(email: str, subject: str, body: str) -> None
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             last_err = exc
             if attempt == 0:
-                logger.warning("Brevo HTTP API network error (will retry once): %s", exc)
+                logger.warning(
+                    "Brevo HTTP API network error (will retry once): %s", exc
+                )
                 continue
             raise
 
@@ -130,23 +113,27 @@ async def _send_mail_via_brevo_http(email: str, subject: str, body: str) -> None
                 pass
             logger.info(
                 "Email sent via Brevo HTTP API to %s (messageId=%s, attempt=%d)",
-                email, msg_id, attempt + 1,
+                email,
+                msg_id,
+                attempt + 1,
             )
             return
 
         body_preview = (resp.text or "")[:300]
-        # Retry only on 429 / 5xx — 4xx are typically bad payload / bad key
-        # which won't get better on retry.
+        # Retry 429/5xx only; 4xx won't improve on retry.
         if (resp.status_code == 429 or resp.status_code >= 500) and attempt == 0:
             logger.warning(
                 "Brevo HTTP API transient %d (will retry once): %s",
-                resp.status_code, body_preview,
+                resp.status_code,
+                body_preview,
             )
             continue
 
         logger.error(
             "Brevo HTTP API rejected email to %s: %d %s",
-            email, resp.status_code, body_preview,
+            email,
+            resp.status_code,
+            body_preview,
         )
         raise RuntimeError(f"Brevo HTTP API returned {resp.status_code}; see logs.")
 
@@ -155,8 +142,7 @@ async def _send_mail_via_brevo_http(email: str, subject: str, body: str) -> None
 
 
 async def _send_mail_via_smtp(email: str, subject: str, body: str) -> None:
-    """Send via fastapi-mail SMTP. Default path for docker-compose dev /
-    VPS deploys where outbound SMTP works."""
+    """Send via fastapi-mail SMTP."""
     message = MessageSchema(
         subject=subject,
         recipients=[email],
@@ -174,15 +160,7 @@ async def _send_mail_via_smtp(email: str, subject: str, body: str) -> None:
 
 
 async def _send_mail_async(email: str, subject: str, body: str):
-    """Send a single HTML email. Picks transport based on settings.BREVO_API_KEY:
-
-    * Set   → Brevo Transactional Email HTTP API (HTTPS — works on Render Free).
-    * Unset → fastapi-mail SMTP (docker-compose dev, VPS with outbound 587 open).
-
-    Callers don't need to know which path runs; dispatch.py wraps the resulting
-    coroutine in a safe-runner before scheduling on BackgroundTasks so a
-    transport failure never propagates into the response.
-    """
+    """Send an HTML email via Brevo HTTP API or SMTP, based on settings."""
     if settings.BREVO_API_KEY:
         await _send_mail_via_brevo_http(email, subject, body)
     else:
@@ -190,9 +168,9 @@ async def _send_mail_async(email: str, subject: str, body: str):
 
 
 # ---------------------------------------------------------------------------
-# Pure async implementations — safe to call directly from
-# FastAPI BackgroundTasks.add_task() on the free-tier deploy.
+# Async implementations
 # ---------------------------------------------------------------------------
+
 
 async def send_verification_email_impl(email: str, token: str) -> None:
     verify_url = f"{settings.FRONTEND_URL}/verify?token={token}"
@@ -254,15 +232,13 @@ async def send_booking_cancelled_impl(
         time_str=time_str,
         cancelled_by=cancelled_by,
     )
-    await _send_mail_async(
-        client_email, f"Booking cancelled at {salon_name}", body
-    )
+    await _send_mail_async(client_email, f"Booking cancelled at {salon_name}", body)
 
 
 # ---------------------------------------------------------------------------
-# Celery wrappers — each is a thin sync shim that runs the impl in a fresh
-# event loop. The worker container picks these up via celery_app.include.
+# Celery wrappers
 # ---------------------------------------------------------------------------
+
 
 @celery_app.task(
     name="send_verification_email_task",
@@ -311,8 +287,12 @@ def send_booking_confirmation_task(
     try:
         asyncio.run(
             send_booking_confirmation_impl(
-                client_email, staff_email, client_name,
-                service_name, time_str, salon_name,
+                client_email,
+                staff_email,
+                client_name,
+                service_name,
+                time_str,
+                salon_name,
             )
         )
     except Exception as exc:
@@ -351,7 +331,11 @@ def send_booking_cancelled_task(
     try:
         asyncio.run(
             send_booking_cancelled_impl(
-                client_email, service_name, time_str, salon_name, cancelled_by,
+                client_email,
+                service_name,
+                time_str,
+                salon_name,
+                cancelled_by,
             )
         )
     except Exception as exc:

@@ -4,6 +4,7 @@ Build the ChromaDB vector index from documents in rag_core/data/.
 Usage (from backend_fastapi/ root):
     python -m rag_core.ingest.build_index
 """
+
 from __future__ import annotations
 
 import sys
@@ -30,17 +31,19 @@ def build_index(data_dir: Path = DATA_DIR) -> None:
         sys.exit(1)
     print(f"  Total: {len(docs)} document(s)")
 
-    fixed_chunker     = FixedSizeChunker(chunk_tokens=256, overlap_tokens=38)
+    fixed_chunker = FixedSizeChunker(chunk_tokens=256, overlap_tokens=38)
     recursive_chunker = RecursiveChunker(max_tokens=350, min_tokens=100)
 
-    all_fixed:     list = []
+    all_fixed: list = []
     all_recursive: list = []
 
     print("\n[2/3] Chunking...")
     for doc in docs:
         fc = fixed_chunker.chunk(doc)
         rc = recursive_chunker.chunk(doc)
-        print(f"  {doc['metadata']['source_file']}: fixed={len(fc)}, recursive={len(rc)}")
+        print(
+            f"  {doc['metadata']['source_file']}: fixed={len(fc)}, recursive={len(rc)}"
+        )
         all_fixed.extend(fc)
         all_recursive.extend(rc)
 
@@ -48,7 +51,7 @@ def build_index(data_dir: Path = DATA_DIR) -> None:
     print(f"  Total recursive chunks: {len(all_recursive)}")
 
     print("\n[3/3] Embedding and indexing into ChromaDB...")
-    index_chunks(all_fixed,     strategy="fixed")
+    index_chunks(all_fixed, strategy="fixed")
     index_chunks(all_recursive, strategy="recursive")
 
     stats = collection_stats()

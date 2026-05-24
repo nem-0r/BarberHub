@@ -10,9 +10,6 @@ const stats = [
   { icon: Clock, label: "Hours Saved", value: "10K+" },
 ]
 
-// ISR: regenerate page at most once per minute. Salon list is read-heavy and changes
-// rarely, so caching the rendered HTML on the Next.js side gives near-instant first paint
-// without burdening the API on every visit.
 export const revalidate = 60
 
 export default async function MarketplacePage() {
@@ -22,7 +19,6 @@ export default async function MarketplacePage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Hero Section */}
       <section className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-10">
@@ -56,7 +52,6 @@ export default async function MarketplacePage() {
         </div>
       </section>
 
-      {/* CTA Banner */}
       <section className="py-16 px-6">
         <div className="max-w-4xl mx-auto">
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand/20 via-surface to-gold/10 border border-brand/20 p-8 sm:p-12">
@@ -80,7 +75,6 @@ export default async function MarketplacePage() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="py-8 px-6 border-t border-border-solid">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">

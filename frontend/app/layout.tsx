@@ -14,7 +14,6 @@ const inter = Inter({
   display: 'swap',
 })
 
-// Use Inter as fallback for Clash Display since it's a premium font
 const clashDisplay = Inter({
   subsets: ['latin'],
   variable: '--font-clash',

@@ -7,8 +7,11 @@ from app.reviews.schemas import ReviewCreate
 from app.salons.models import Salon
 
 
-async def create_review(data: ReviewCreate, author_id: uuid.UUID, session: AsyncSession) -> Review:
+async def create_review(
+    data: ReviewCreate, author_id: uuid.UUID, session: AsyncSession
+) -> Review:
     from sqlalchemy import func
+
     review = Review(**data.model_dump(), author_id=author_id)
     session.add(review)
     await session.flush()  # Ensure the new review is visible in the aggregate query
@@ -34,7 +37,15 @@ async def create_review(data: ReviewCreate, author_id: uuid.UUID, session: Async
     return review
 
 
-async def get_reviews_for_salon(salon_id: uuid.UUID, session: AsyncSession, skip: int = 0, limit: int = 50) -> List[Review]:
-    statement = select(Review).where(Review.salon_id == salon_id).order_by(Review.created_at.desc()).offset(skip).limit(limit)
+async def get_reviews_for_salon(
+    salon_id: uuid.UUID, session: AsyncSession, skip: int = 0, limit: int = 50
+) -> List[Review]:
+    statement = (
+        select(Review)
+        .where(Review.salon_id == salon_id)
+        .order_by(Review.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     result = await session.exec(statement)
     return result.all()

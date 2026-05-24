@@ -20,10 +20,11 @@ def _enrich(staff: Staff, user: Optional[User]) -> StaffRead:
     return data
 
 
-async def get_all_staff(session: AsyncSession, skip: int = 0, limit: int = 50) -> List[StaffRead]:
+async def get_all_staff(
+    session: AsyncSession, skip: int = 0, limit: int = 50
+) -> List[StaffRead]:
     result = await session.exec(select(Staff).offset(skip).limit(limit))
     staff_list = result.all()
-    # Bulk-fetch all related users in one query
     user_ids = [s.user_id for s in staff_list if s.user_id]
     users_map: dict[uuid.UUID, User] = {}
     if user_ids:
@@ -33,7 +34,9 @@ async def get_all_staff(session: AsyncSession, skip: int = 0, limit: int = 50) -
     return [_enrich(s, users_map.get(s.user_id)) for s in staff_list]
 
 
-async def get_staff_by_id(staff_id: uuid.UUID, session: AsyncSession) -> Optional[StaffRead]:
+async def get_staff_by_id(
+    staff_id: uuid.UUID, session: AsyncSession
+) -> Optional[StaffRead]:
     staff = await session.get(Staff, staff_id)
     if not staff:
         return None
@@ -41,7 +44,9 @@ async def get_staff_by_id(staff_id: uuid.UUID, session: AsyncSession) -> Optiona
     return _enrich(staff, user)
 
 
-async def get_staff_by_salon(salon_id: uuid.UUID, session: AsyncSession) -> List[StaffRead]:
+async def get_staff_by_salon(
+    salon_id: uuid.UUID, session: AsyncSession
+) -> List[StaffRead]:
     result = await session.exec(select(Staff).where(Staff.salon_id == salon_id))
     staff_list = result.all()
     user_ids = [s.user_id for s in staff_list if s.user_id]
@@ -53,7 +58,9 @@ async def get_staff_by_salon(salon_id: uuid.UUID, session: AsyncSession) -> List
     return [_enrich(s, users_map.get(s.user_id)) for s in staff_list]
 
 
-async def get_staff_by_user_id(user_id: uuid.UUID, session: AsyncSession) -> Optional[StaffRead]:
+async def get_staff_by_user_id(
+    user_id: uuid.UUID, session: AsyncSession
+) -> Optional[StaffRead]:
     result = await session.exec(select(Staff).where(Staff.user_id == user_id))
     staff = result.first()
     if not staff:
@@ -62,47 +69,54 @@ async def get_staff_by_user_id(user_id: uuid.UUID, session: AsyncSession) -> Opt
     return _enrich(staff, user)
 
 
-async def create_staff(data: StaffCreate, session: AsyncSession, current_user: User) -> Staff:
+async def create_staff(
+    data: StaffCreate, session: AsyncSession, current_user: User
+) -> Staff:
     salon = await session.get(Salon, data.salon_id)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
-        
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to add staff to this salon")
-        
+
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to add staff to this salon"
+        )
+
     user_id = data.user_id
-    
-    # Auto-create user if email provided and user_id missing
+
     if not user_id and data.email:
         # Check if user already exists
-        existing_user_res = await session.exec(select(User).where(User.email == data.email))
+        existing_user_res = await session.exec(
+            select(User).where(User.email == data.email)
+        )
         existing_user = existing_user_res.first()
-        
+
         if existing_user:
             user_id = existing_user.id
         else:
-            # Create a new user with staff role
             from app.users.auth import hash_password
             import secrets
-            
+
             temp_password = secrets.token_urlsafe(12)
-            # phone must be unique NOT NULL; use a placeholder derived from email
+            # Placeholder phone avoids NOT NULL constraint; replaced on first login.
             placeholder_phone = f"+0{abs(hash(data.email)) % 10_000_000_000_000:013d}"
             new_user = User(
                 email=data.email,
-                full_name=data.full_name or data.email.split('@')[0],
+                full_name=data.full_name or data.email.split("@")[0],
                 phone=placeholder_phone,
                 password_hash=hash_password(temp_password),
                 role=UserRole.staff,
             )
             session.add(new_user)
-            await session.flush() # Get the new user ID
+            await session.flush()
             user_id = new_user.id
 
     if not user_id:
-        raise HTTPException(status_code=400, detail="Missing user_id or email for staff creation")
+        raise HTTPException(
+            status_code=400, detail="Missing user_id or email for staff creation"
+        )
 
-    # Upgrade user role if they were a client
     user = await session.get(User, user_id)
     if user and user.role == UserRole.client:
         user.role = UserRole.staff
@@ -117,7 +131,9 @@ async def create_staff(data: StaffCreate, session: AsyncSession, current_user: U
     return _enrich(staff, user)
 
 
-async def update_staff(staff_id: uuid.UUID, data: StaffUpdate, session: AsyncSession, current_user: User) -> Optional[StaffRead]:
+async def update_staff(
+    staff_id: uuid.UUID, data: StaffUpdate, session: AsyncSession, current_user: User
+) -> Optional[StaffRead]:
     staff = await session.get(Staff, staff_id)
     if not staff:
         return None
@@ -125,8 +141,12 @@ async def update_staff(staff_id: uuid.UUID, data: StaffUpdate, session: AsyncSes
     salon = await session.get(Salon, staff.salon_id)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this staff member")
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to modify this staff member"
+        )
 
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(staff, key, value)
@@ -137,7 +157,9 @@ async def update_staff(staff_id: uuid.UUID, data: StaffUpdate, session: AsyncSes
     return _enrich(staff, user)
 
 
-async def delete_staff(staff_id: uuid.UUID, session: AsyncSession, current_user: User) -> bool:
+async def delete_staff(
+    staff_id: uuid.UUID, session: AsyncSession, current_user: User
+) -> bool:
     staff = await session.get(Staff, staff_id)
     if not staff:
         return False
@@ -145,14 +167,20 @@ async def delete_staff(staff_id: uuid.UUID, session: AsyncSession, current_user:
     salon = await session.get(Salon, staff.salon_id)
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
-    if current_user.role != UserRole.admin and str(salon.owner_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this staff member")
+    if current_user.role != UserRole.admin and str(salon.owner_id) != str(
+        current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to delete this staff member"
+        )
 
-    # Clean dependent staff↔service links first (FK has no ON DELETE CASCADE,
-    # otherwise deleting a barber who provides any service raises 500). Atomic.
+    # Remove staff_services links first (no ON DELETE CASCADE).
     from app.staff_services.models import StaffService
+
     links = (
-        await session.exec(select(StaffService).where(StaffService.staff_id == staff_id))
+        await session.exec(
+            select(StaffService).where(StaffService.staff_id == staff_id)
+        )
     ).all()
     for link in links:
         await session.delete(link)

@@ -1,8 +1,24 @@
 services:
-  # 1. Redis (Message Broker for Celery & Cache)
-  # Bound to loopback only: dev workflow is unchanged (other containers reach it
-  # via the compose network as `redis:6379`), but if this compose is ever brought
-  # up on a cloud VM, Redis (no auth) is NOT exposed to the public internet.
+  # PostgreSQL + pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: barbershop-postgres
+    environment:
+      - POSTGRES_USER=barberhub
+      - POSTGRES_PASSWORD=barberhub
+      - POSTGRES_DB=barberhub
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barberhub -d barberhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  # Redis — Celery broker + cache
   redis:
     image: redis:7-alpine
     container_name: barbershop-redis
@@ -10,9 +26,7 @@ services:
       - "127.0.0.1:6379:6379"
     restart: always
 
-  # 2. Elasticsearch (Log Storage)
-  # Loopback-only for the same reason — `xpack.security.enabled=false` means no
-  # auth at all; never let port 9200 face the public internet.
+  # Elasticsearch — log storage
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     container_name: barbershop-elasticsearch
@@ -26,8 +40,7 @@ services:
       - es_data:/usr/share/elasticsearch/data
     restart: always
 
-  # 3. FastAPI App (Core API + RAG Chatbot)
-  # Built once here; worker/beat/flower reuse the same image via `image:` below
+  # FastAPI app
   app:
     build: .
     image: barbershop-backend
@@ -38,19 +51,25 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://barberhub:barberhub@postgres:5432/barberhub}
+      - RAG_BACKEND=${RAG_BACKEND:-pgvector}
       - REDIS_HOST=redis
       - ELASTIC_HOST=elasticsearch
       - SENTENCE_TRANSFORMERS_HOME=/model_cache
     depends_on:
-      - redis
-      - elasticsearch
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
     volumes:
       - .:/app
       - chroma_data:/app/rag_core/chroma_data
       - model_cache:/model_cache
     restart: always
 
-  # 4. Celery Worker — reuses the same image as app (no separate build)
+  # Celery worker
   worker:
     image: barbershop-backend
     container_name: barbershop-worker
@@ -58,6 +77,8 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://barberhub:barberhub@postgres:5432/barberhub}
+      - RAG_BACKEND=${RAG_BACKEND:-pgvector}
       - REDIS_HOST=redis
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -67,7 +88,7 @@ services:
       - .:/app
     restart: always
 
-  # 5. Celery Beat — reuses the same image as app
+  # Celery beat
   beat:
     image: barbershop-backend
     container_name: barbershop-beat
@@ -75,6 +96,8 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://barberhub:barberhub@postgres:5432/barberhub}
+      - RAG_BACKEND=${RAG_BACKEND:-pgvector}
       - REDIS_HOST=redis
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -84,9 +107,7 @@ services:
       - .:/app
     restart: always
 
-  # 6. Flower — reuses the same image as app
-  # Loopback-only: Flower has full visibility into task arguments and no auth in
-  # dev. Reach it at http://localhost:5555 from your own machine.
+  # Flower — Celery monitoring UI
   flower:
     image: barbershop-backend
     container_name: barbershop-flower
@@ -105,8 +126,7 @@ services:
       - .:/app
     restart: always
 
-  # 7. Redis Commander (Redis Cache GUI)
-  # Loopback-only — no auth, exposes all Redis contents.
+  # Redis Commander
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: barbershop-redis-commander
@@ -118,7 +138,7 @@ services:
       - redis
     restart: always
 
-  # 8. Frontend (Next.js App)
+  # Frontend (Next.js)
   frontend:
     build:
       context: ./frontend
@@ -139,6 +159,7 @@ services:
     restart: always
 
 volumes:
+  pg_data:
   es_data:
   frontend_node_modules:
   frontend_next:

@@ -37,16 +37,14 @@ export default function PartnerRegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [registered, setRegistered] = useState(false) // ← New screen "Check your email"
+  const [registered, setRegistered] = useState(false)
   const [registeredEmail, setRegisteredEmail] = useState("")
 
   const [formData, setFormData] = useState({
-    // Step 1: Business Info
     salonName: "",
     address: "",
     city: "Almaty",
     phone: "",
-    // Step 2: Account Info
     ownerName: "",
     email: "",
     password: "",
@@ -67,10 +65,6 @@ export default function PartnerRegisterPage() {
     setError(null)
 
     try {
-      // 1. Register user with role="owner" so they can hit the
-      // owner-protected create-salon endpoint after email verification.
-      // Backend UserCreate validator only accepts "client" or "owner" —
-      // "admin" is server-side only and can't be set from the public form.
       await api.register({
         email: formData.email,
         password: formData.password,
@@ -79,19 +73,14 @@ export default function PartnerRegisterPage() {
         role: "owner",
       })
 
-      // 2. Save salon data to localStorage to create AFTER verification
-      // IMPORTANT: Use localStorage (not sessionStorage) since email link opens in a NEW tab
+      // use localStorage so the email verification link (new tab) can still read it
       localStorage.setItem("pending_salon", JSON.stringify({
         name: formData.salonName,
         address: formData.address,
         city: formData.city,
-        owner_id: "00000000-0000-0000-0000-000000000000", // will be overridden by backend
+        owner_id: "00000000-0000-0000-0000-000000000000",
       }))
-
-      // 3. Save email for auto-login (only in localStorage, do not save password for security)
       localStorage.setItem("pending_email", formData.email)
-
-      // 4. Show "Check your email" screen
       setRegisteredEmail(formData.email)
       setRegistered(true)
 
@@ -106,7 +95,6 @@ export default function PartnerRegisterPage() {
     formData.salonName && formData.address && formData.city && formData.phone
   const step2Valid = formData.ownerName && formData.email && formData.password
 
-  // ─── "Email Sent" Screen ──────────────────────────────────────────────
   if (registered) {
     return (
       <div className="min-h-screen bg-background">
@@ -161,7 +149,6 @@ export default function PartnerRegisterPage() {
       </div>
     )
   }
-  // ────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,7 +157,6 @@ export default function PartnerRegisterPage() {
       <div className="pt-24 pb-16 px-6">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            {/* Left: Benefits */}
             <div className="lg:pr-8">
               <div className="sticky top-24">
                 <div className="flex items-center gap-3 mb-6">
@@ -221,9 +207,7 @@ export default function PartnerRegisterPage() {
               </div>
             </div>
 
-            {/* Right: Form */}
             <div>
-              {/* Progress */}
               <div className="flex items-center gap-4 mb-8">
                 <div className="flex items-center gap-2">
                   <div
@@ -283,7 +267,6 @@ export default function PartnerRegisterPage() {
               )}
 
               <div className="bg-surface border border-border-solid rounded-2xl p-6 sm:p-8">
-                {/* Step 1: Business Info */}
                 {step === 1 && (
                   <form onSubmit={handleStep1Submit}>
                     <h2 className="font-display font-bold text-xl text-foreground mb-6">
@@ -379,7 +362,6 @@ export default function PartnerRegisterPage() {
                   </form>
                 )}
 
-                {/* Step 2: Account Info */}
                 {step === 2 && (
                   <form onSubmit={handleStep2Submit}>
                     <h2 className="font-display font-bold text-xl text-foreground mb-6">

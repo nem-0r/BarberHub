@@ -1,17 +1,8 @@
-"""Embedder facade with provider abstraction.
+"""Embedder facade: 'sentence_transformer' (local BGE-M3) or 'gemini' (HTTP).
 
-Two providers behind a single `embed()` / `embed_query()` surface:
-
-  * "sentence_transformer" — local BAAI/bge-m3 via sentence-transformers.
-                             ~2.3 GB on disk, 3-4 GB RAM at runtime, 1024-dim.
-                             Default for local docker-compose.yml.
-  * "gemini"               — Google `text-embedding-004` via REST.
-                             Zero local RAM, 768-dim. Used in prod free-tier
-                             (Render Free 512 MB cannot host BGE-M3 + torch).
-
-Selection via settings.EMBEDDER_PROVIDER. The dim must match
-settings.EMBEDDING_DIM (and the pgvector column dimensionality).
+Selected via settings.EMBEDDER_PROVIDER; dim must match settings.EMBEDDING_DIM.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,18 +28,21 @@ class EmbedderProtocol(Protocol):
 # Provider: SentenceTransformer (local BGE-M3)
 # ===========================================================================
 
+
 class SentenceTransformerEmbedder:
-    """Local BAAI/bge-m3 — kept for development and offline demos."""
+    """Local BAAI/bge-m3."""
 
     def __init__(self) -> None:
-        # Heavy deps imported lazily so the prod image can drop torch entirely.
+        # Lazy imports so the prod image can drop torch entirely.
         import torch
         from sentence_transformers import SentenceTransformer
 
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         print(f"[Embedder] Loading BAAI/bge-m3 on {device} ...")
         self._model = SentenceTransformer(
-            "BAAI/bge-m3", cache_folder=_CACHE_DIR, device=device,
+            "BAAI/bge-m3",
+            cache_folder=_CACHE_DIR,
+            device=device,
         )
         self._dim = 1024
         print(f"[Embedder] BGE-M3 ready on {device}.")
@@ -59,14 +53,18 @@ class SentenceTransformerEmbedder:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = self._model.encode(
-            texts, normalize_embeddings=True, show_progress_bar=False,
+            texts,
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )
         return vectors.tolist()
 
     def embed_query(self, query: str) -> list[float]:
         prefixed = f"Represent this sentence for searching relevant passages: {query}"
         vector = self._model.encode(
-            [prefixed], normalize_embeddings=True, show_progress_bar=False,
+            [prefixed],
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )
         return vector[0].tolist()
 
@@ -75,37 +73,21 @@ class SentenceTransformerEmbedder:
 # Provider: Gemini text-embedding-004 (HTTP, no local model)
 # ===========================================================================
 
-class GeminiEmbedder:
-    """Google Gemini embeddings via the generativeai SDK.
 
-    Shares the global `genai.configure(api_key=...)` state with the LLM
-    rotator. That's safe in practice because:
-      * rotator only re-configures on rate-limit/auth errors, holding a lock
-      * embed_content() reads the configured key at call time
-      * if a stale key happens to be set, the call raises and we retry under
-        our own backoff with the first valid key
-    A separate-client refactor would be cleaner but adds complexity we don't
-    need for a pet-project demo.
-    """
+class GeminiEmbedder:
+    """Google Gemini text-embedding via the generativeai SDK."""
 
     _MAX_ATTEMPTS = 4
 
-    # Google quietly removes/relocates embedding models in v1beta (which the
-    # deprecated `google-generativeai` SDK is pinned to). What works today may
-    # 404 tomorrow, e.g. `models/text-embedding-004` started 404-ing in v1beta
-    # in 2026-05. We probe a candidate list at init and use the first model
-    # that responds with a vector of the right dimensionality.
+    # Probe candidates at init; use first that returns the expected dimensionality.
     # Each entry: (model_name, extra_kwargs_dict).
-    #
-    # Discovered 2026-05-21 via `scripts/list_gemini_models.py` on a key with
-    # access to free-tier embedding endpoints — these three are the only
-    # `embedContent`-capable models visible. All are native-3072 Matryoshka
-    # models; we request 768 via `output_dimensionality` to match the
-    # pgvector(768) column width.
     _EMBED_MODEL_CANDIDATES: list[tuple[str, dict]] = [
-        ("models/gemini-embedding-2",         {"output_dimensionality": 768}),  # stable v2
-        ("models/gemini-embedding-001",       {"output_dimensionality": 768}),  # stable v1
-        ("models/gemini-embedding-2-preview", {"output_dimensionality": 768}),  # preview v2
+        ("models/gemini-embedding-2", {"output_dimensionality": 768}),  # stable v2
+        ("models/gemini-embedding-001", {"output_dimensionality": 768}),  # stable v1
+        (
+            "models/gemini-embedding-2-preview",
+            {"output_dimensionality": 768},
+        ),  # preview v2
     ]
 
     def __init__(self) -> None:
@@ -116,8 +98,6 @@ class GeminiEmbedder:
         self._key_idx = 0
         self._configure(self._keys[0])
 
-        # User's configured model wins if it works; otherwise we fall through
-        # the candidate list.
         configured = (settings.GEMINI_EMBED_MODEL or "").strip()
         candidates: list[tuple[str, dict]] = []
         if configured:
@@ -133,9 +113,7 @@ class GeminiEmbedder:
         )
 
     def _probe_models(self, candidates: list[tuple[str, dict]]) -> tuple[str, dict]:
-        """Send a 1-token probe to each candidate; return the first that
-        returns a vector matching settings.EMBEDDING_DIM. Logs each attempt
-        so the failure mode is visible in Render Logs."""
+        """Return the first candidate that responds with the expected vector dim."""
         import google.generativeai as genai
 
         print(f"[Embedder] Probing {len(candidates)} embedding model candidate(s) ...")
@@ -187,6 +165,7 @@ class GeminiEmbedder:
 
     def _configure(self, key: str) -> None:
         import google.generativeai as genai
+
         genai.configure(api_key=key)
 
     def _rotate_key(self) -> None:
@@ -202,11 +181,17 @@ class GeminiEmbedder:
             except Exception as exc:
                 last = exc
                 msg = str(exc).lower()
-                rotate = ("429" in msg or "quota" in msg or "rate" in msg
-                          or "401" in msg or "403" in msg or "invalid" in msg)
+                rotate = (
+                    "429" in msg
+                    or "quota" in msg
+                    or "rate" in msg
+                    or "401" in msg
+                    or "403" in msg
+                    or "invalid" in msg
+                )
                 if rotate and len(self._keys) > 1:
                     self._rotate_key()
-                time.sleep(0.5 * (2 ** attempt))
+                time.sleep(0.5 * (2**attempt))
         raise RuntimeError(f"Gemini embed_content failed after retries: {last}")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -223,7 +208,11 @@ class GeminiEmbedder:
                 )
             )
             vec = resp["embedding"]
-            if not isinstance(vec, list) or not vec or not isinstance(vec[0], (int, float)):
+            if (
+                not isinstance(vec, list)
+                or not vec
+                or not isinstance(vec[0], (int, float))
+            ):
                 raise RuntimeError(
                     f"GeminiEmbedder: unexpected embed_content response shape "
                     f"for text #{idx} (got type={type(vec).__name__}). "
@@ -253,9 +242,6 @@ class GeminiEmbedder:
 
     @staticmethod
     def _l2_normalize(vec) -> list[float]:
-        # text-embedding-004 already returns L2-normalized vectors, but
-        # normalizing again is idempotent and protects the cosine-distance
-        # contract in vector_db.py if Google ever changes default behaviour.
         s = sum(float(x) * float(x) for x in vec) ** 0.5
         if s == 0:
             return [float(x) for x in vec]
@@ -271,6 +257,7 @@ _embedder: EmbedderProtocol | None = None
 
 def _build_embedder() -> EmbedderProtocol:
     from config import settings
+
     provider = (settings.EMBEDDER_PROVIDER or "sentence_transformer").strip().lower()
     if provider in ("gemini", "google"):
         return GeminiEmbedder()
@@ -290,7 +277,6 @@ def get_embedder() -> EmbedderProtocol:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Embed a list of documents."""
     return get_embedder().embed(texts)
 
 
@@ -301,10 +287,6 @@ def _embed_query_cached(normalized_query: str) -> tuple[float, ...]:
 
 
 def embed_query(query: str) -> list[float]:
-    """Embed a query string with normalization-aware caching.
-
-    Normalizes case + whitespace so "Как записаться?" and "как записаться?"
-    share a cache slot.
-    """
+    """Embed query string; normalizes case and whitespace for cache reuse."""
     normalized = " ".join(query.strip().lower().split())
     return list(_embed_query_cached(normalized))

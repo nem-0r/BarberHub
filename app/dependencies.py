@@ -15,9 +15,9 @@ from app.users.redis import (
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
 
+
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    session: AsyncSession = Depends(get_session)
+    token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_session)
 ) -> User:
     payload = decode_access_token(token)
     if not payload:
@@ -26,17 +26,14 @@ async def get_current_user(
             detail="Could not validate credentials",
         )
 
-    # A refresh token must never authorize a normal request — it's only valid
-    # at POST /users/refresh. (Tokens issued before the type claim existed have
-    # no "type" and are treated as access for backward compatibility.)
+    # Reject refresh tokens on non-refresh endpoints.
     if payload.get("type") == "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Cannot use a refresh token to access this resource",
         )
 
-    # Check blocklist
-    jti = payload.get("jti") # We should add jti to token creation
+    jti = payload.get("jti")
     if jti and await is_token_blocked(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -52,19 +49,13 @@ async def get_current_user(
 
     user_uuid = uuid.UUID(user_id)
 
-    # Fast path: Redis-cached user (TTL 60s). Avoids a DB SELECT on every authorized
-    # request. Cache is invalidated on logout, update, verify, and password reset.
+    # Redis cache (TTL 60s) avoids a DB hit on every authorized request.
     cached = await get_cached_user(user_uuid)
     if cached is not None:
         return build_user_from_cache(cached)
 
     user = await get_user_by_id(user_uuid, session)
     if not user:
-        # Token is well-formed but the user it refers to no longer exists
-        # (deleted account, hand-rolled JWT for a fake id, etc). 401 — NOT
-        # 404 — is the right status: the frontend's apiFetch retries 401 via
-        # /users/refresh, but treats 404 as a missing resource and gives up,
-        # leaving the user on a blank page with no auth recovery path.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token refers to a user that no longer exists",
@@ -72,6 +63,7 @@ async def get_current_user(
 
     await cache_user(user)
     return user
+
 
 class RoleChecker:
     def __init__(self, allowed_roles: list[UserRole]):
@@ -81,11 +73,11 @@ class RoleChecker:
         if not user.is_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your account is not verified. Please check your email."
+                detail="Your account is not verified. Please check your email.",
             )
         if user.role not in self.allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have enough permissions"
+                detail="You do not have enough permissions",
             )
         return user

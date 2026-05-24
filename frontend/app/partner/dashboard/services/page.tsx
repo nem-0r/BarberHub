@@ -95,7 +95,6 @@ export default function ServicesPage() {
           return
         }
         const user = JSON.parse(userStr)
-        // Only owner / admin can manage the salon's service catalogue
         if (user.role !== "owner" && user.role !== "admin") {
           router.replace("/partner/dashboard")
           return
@@ -167,7 +166,6 @@ export default function ServicesPage() {
         await api.createService(serviceData, token)
       }
 
-      // Refresh list
       const data = await api.getServicesBySalonId(salon.id)
       setServices(data)
       setShowModal(false)
@@ -221,7 +219,6 @@ export default function ServicesPage() {
       <PartnerSidebar />
 
       <main className="lg:ml-64 p-8">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display font-bold text-3xl text-foreground">
@@ -240,7 +237,6 @@ export default function ServicesPage() {
           </button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <div className="bento-card">
             <p className="text-sm text-muted-foreground mb-1">Total Services</p>
@@ -265,7 +261,6 @@ export default function ServicesPage() {
           </div>
         </div>
 
-        {/* Category Filter */}
         <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
           {categories.map((cat) => (
             <button
@@ -283,7 +278,6 @@ export default function ServicesPage() {
           ))}
         </div>
 
-        {/* Services Table */}
         <div className="bento-card overflow-hidden p-0">
           <table className="w-full">
             <thead>
@@ -376,7 +370,6 @@ export default function ServicesPage() {
         </div>
       </main>
 
-      {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
